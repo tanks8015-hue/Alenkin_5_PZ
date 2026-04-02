@@ -4,7 +4,7 @@
 #include <sql.h>      
 #include <sqlext.h>   
 #include <string>
-#include <commctrl.h> 
+#include <commctrl.h> // Для таблиц и продвинутых контролов
 #include <thread> // Добавил для асинхронности
 
 #pragma comment(lib, "advapi32.lib")
@@ -16,26 +16,34 @@
 #define IDC_USERNAME_EDIT 101
 #define IDC_PASSWORD_EDIT 102
 #define IDC_LOGIN_BUTTON 103
-#define IDC_BTN_OPEN_EDITOR 104 
-#define IDC_COMBO_COUNTRY 105   
-#define IDC_COMBO_CITY 106      
+#define IDC_BTN_OPEN_EDITOR 104 // Кнопка открытия 3-й формы
+#define IDC_COMBO_COUNTRY 105   // Выпадающий список "Страна"
+#define IDC_COMBO_CITY 106      // Выпадающий список "Город"
 #define IDC_BTN_OPEN_ANALYTICS 107 // ID кнопки для 4-й формы
 #define IDC_BTN_GENERATE_REPORT 108 // ID кнопки внутри 4-й формы
 #define IDC_LBL_REPORT_RESULT 109 // ID текста результата
+// НОВЫЕ ID ДЛЯ ФИЛЬТРОВ И ТРАНЗАКЦИЙ:
+#define IDC_EDIT_FILTER 110
+#define IDC_BTN_FILTER 111
+#define IDC_BTN_OPEN_WIZARD 112
+#define IDC_BTN_WIZ_NEXT 113
+#define IDC_BTN_WIZ_CANCEL 114
 
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 WCHAR szDashboardClass[] = L"DashboardWindow";
-WCHAR szEditorClass[] = L"EditorWindow";
+WCHAR szEditorClass[] = L"EditorWindow"; // Класс для Формы 3
 WCHAR szAnalyticsClass[] = L"AnalyticsWindow"; // Класс для Формы 4
+WCHAR szWizardClass[] = L"WizardWindow"; // Класс для Формы Транзакций
 
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    DashboardWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы 3
 LRESULT CALLBACK    AnalyticsWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы 4
+LRESULT CALLBACK    WizardWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Транзакционного Мастера
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 std::wstring GenerateSHA256(const std::wstring& input)
@@ -125,6 +133,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexAn.lpszClassName = szAnalyticsClass;
     RegisterClassExW(&wcexAn);
 
+    // Регистрация Мастера Транзакций
+    WNDCLASSEXW wcexWiz = { 0 };
+    wcexWiz.cbSize = sizeof(WNDCLASSEX);
+    wcexWiz.style = CS_HREDRAW | CS_VREDRAW;
+    wcexWiz.lpfnWndProc = WizardWndProc;
+    wcexWiz.hInstance = hInstance;
+    wcexWiz.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexWiz.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcexWiz.lpszClassName = szWizardClass;
+    RegisterClassExW(&wcexWiz);
+
     if (!InitInstance(hInstance, nCmdShow)) return FALSE;
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_ALENKIN5PZ));
@@ -206,7 +225,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     if (SQLFetch(hStmt) == SQL_SUCCESS) {
                         SQLCloseCursor(hStmt);
 
-                        HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 800, 600, nullptr, nullptr, hInst, nullptr);
+                        HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 800, 650, nullptr, nullptr, hInst, nullptr);
                         if (hDash) {
                             ShowWindow(hDash, SW_SHOW);
                             UpdateWindow(hDash);
@@ -231,17 +250,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 // ---------------- ФОРМА 2: ГЛАВНЫЙ ДАШБОРД ----------------
 LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static HWND hListView, hBtnEditor, hBtnAnalytics;
+    static HWND hListView, hBtnEditor, hBtnAnalytics, hEditFilter;
     switch (message)
     {
     case WM_CREATE:
     {
+        // ВИЗУАЛЬНЫЙ КОНСТРУКТОР ФИЛЬТРОВ (Прямо на дашборде сверху)
+        CreateWindowW(L"STATIC", L"Фильтр (Цена >):", WS_VISIBLE | WS_CHILD, 330, 20, 120, 20, hWnd, NULL, hInst, NULL);
+        hEditFilter = CreateWindowW(L"EDIT", L"0", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER, 450, 20, 60, 20, hWnd, (HMENU)IDC_EDIT_FILTER, hInst, NULL);
+        CreateWindowW(L"BUTTON", L"Поиск", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 520, 18, 60, 24, hWnd, (HMENU)IDC_BTN_FILTER, hInst, NULL);
+
         hBtnEditor = CreateWindowW(L"BUTTON", L"Добавить поставщика (Редактор)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             20, 480, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_EDITOR, hInst, NULL);
 
-        // Добавил кнопку для 4-й формы
         hBtnAnalytics = CreateWindowW(L"BUTTON", L"Панель аналитики", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             300, 480, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_ANALYTICS, hInst, NULL);
+
+        // КНОПКА ТРАНЗАКЦИОННОГО МАСТЕРА
+        CreateWindowW(L"BUTTON", L"Мастер заказов (Транзакции)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            20, 530, 530, 40, hWnd, (HMENU)IDC_BTN_OPEN_WIZARD, hInst, NULL);
 
         hListView = CreateWindowExW(0, WC_LISTVIEW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER | LVS_SINGLESEL,
             20, 60, 600, 400, hWnd, NULL, hInst, NULL);
@@ -287,8 +314,47 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
             HWND hEditor = CreateWindowW(szEditorClass, L"Карточка поставщика", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 150, 150, 450, 400, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_OPEN_ANALYTICS) {
-            // Открываем форму 4
             HWND hAnalytics = CreateWindowW(szAnalyticsClass, L"Панель аналитики", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 200, 200, 500, 350, nullptr, nullptr, hInst, nullptr);
+        }
+        else if (wmId == IDC_BTN_OPEN_WIZARD) {
+            HWND hWiz = CreateWindowW(szWizardClass, L"Транзакционный мастер (Оформление)", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 250, 250, 400, 200, nullptr, nullptr, hInst, nullptr);
+        }
+        else if (wmId == IDC_BTN_FILTER) {
+            // ЛОГИКА ФИЛЬТРА
+            wchar_t filterVal[50];
+            GetWindowTextW(hEditFilter, filterVal, 50);
+            if (wcslen(filterVal) == 0) wcscpy_s(filterVal, L"0");
+
+            ListView_DeleteAllItems(hListView); // Очищаем таблицу
+
+            wchar_t connStr[256] = { 0 };
+            GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+            SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+            SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+            if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                wchar_t query[512];
+                swprintf_s(query, 512, L"SELECT ProductID, ProductName, BasePrice FROM Products WHERE BasePrice > %ls", filterVal);
+                if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
+                    SQLINTEGER prodId; SQLWCHAR prodName[100]; SQLWCHAR priceStr[50]; SQLLEN cbId, cbName, cbPrice;
+                    int rowCount = 0;
+                    while (SQLFetch(hStmt) == SQL_SUCCESS) {
+                        SQLGetData(hStmt, 1, SQL_C_SLONG, &prodId, sizeof(prodId), &cbId);
+                        SQLGetData(hStmt, 2, SQL_C_WCHAR, prodName, sizeof(prodName), &cbName);
+                        SQLGetData(hStmt, 3, SQL_C_WCHAR, priceStr, sizeof(priceStr), &cbPrice);
+
+                        LVITEMW lvi = { 0 }; lvi.mask = LVIF_TEXT; lvi.iItem = rowCount; lvi.iSubItem = 0;
+                        wchar_t idBuf[20]; swprintf_s(idBuf, 20, L"%d", prodId);
+                        lvi.pszText = idBuf;
+                        ListView_InsertItem(hListView, &lvi);
+                        ListView_SetItemText(hListView, rowCount, 1, prodName);
+                        ListView_SetItemText(hListView, rowCount, 2, priceStr);
+                        rowCount++;
+                    }
+                }
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+            }
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         }
         break;
     }
@@ -389,10 +455,8 @@ LRESULT CALLBACK AnalyticsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         if (LOWORD(wParam) == IDC_BTN_GENERATE_REPORT) {
             SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, L"Статус: Выполняю тяжелый запрос в фоне...");
 
-            // Запускаем асинхронный поток (ТЗ требует std::thread)
             std::thread([hWnd]() {
-                Sleep(2000); // Имитируем тяжелый расчет
-
+                Sleep(2000);
                 wchar_t connStr[256] = { 0 };
                 GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
                 SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
@@ -401,7 +465,6 @@ LRESULT CALLBACK AnalyticsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
                 std::wstring result = L"Статус: Ошибка запроса";
                 if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
                     SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
-                    // Строго без SELECT * по ТЗ
                     if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT SUM(BasePrice) FROM Products", SQL_NTS))) {
                         if (SQLFetch(hStmt) == SQL_SUCCESS) {
                             SQLWCHAR sum[100]; SQLLEN cb;
@@ -413,9 +476,81 @@ LRESULT CALLBACK AnalyticsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
                 }
                 SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
 
-                // Обновляем текст в UI из потока
                 SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, result.c_str());
                 }).detach();
+        }
+        break;
+    default: return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+// ---------------- ФОРМА 5: ТРАНЗАКЦИОННЫЙ МАСТЕР ----------------
+LRESULT CALLBACK WizardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static int step = 1;
+    static HWND hLblStep, hBtnNext, hBtnCancel;
+    static SQLHDBC hDbc = NULL;
+    static SQLHENV hEnv = NULL;
+
+    switch (message)
+    {
+    case WM_CREATE:
+        step = 1;
+        hLblStep = CreateWindowW(L"STATIC", L"Шаг 1: Подготовка транзакции...\nНажмите 'Далее', чтобы начать.", WS_VISIBLE | WS_CHILD, 20, 20, 340, 40, hWnd, NULL, hInst, NULL);
+        hBtnNext = CreateWindowW(L"BUTTON", L"Далее", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 20, 80, 100, 30, hWnd, (HMENU)IDC_BTN_WIZ_NEXT, hInst, NULL);
+        hBtnCancel = CreateWindowW(L"BUTTON", L"Отмена", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 130, 80, 100, 30, hWnd, (HMENU)IDC_BTN_WIZ_CANCEL, hInst, NULL);
+        break;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_BTN_WIZ_NEXT) {
+            if (step == 1) {
+                wchar_t connStr[256] = { 0 };
+                GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+                SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
+                SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+                if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+
+                    // ОТКЛЮЧАЕМ АВТОКОММИТ (НАЧАЛО ТРАНЗАКЦИИ)
+                    SQLSetConnectAttr(hDbc, SQL_ATTR_AUTOCOMMIT, (SQLPOINTER)SQL_AUTOCOMMIT_OFF, 0);
+
+                    SQLHSTMT hStmt; SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                    SQLExecDirectW(hStmt, (SQLWCHAR*)L"INSERT INTO ProductionOrders (Status) VALUES ('Черновик')", SQL_NTS);
+                    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+
+                    step = 2;
+                    SetWindowTextW(hLblStep, L"Шаг 2: Заказ СОЗДАН в БД, но еще не зафиксирован.\nНажмите 'Далее' для COMMIT, или 'Отмена' для ROLLBACK.");
+                }
+                else {
+                    MessageBoxW(hWnd, L"Ошибка подключения", L"Ошибка", MB_OK);
+                }
+            }
+            else if (step == 2) {
+                // ФИКСАЦИЯ (COMMIT)
+                SQLEndTran(SQL_HANDLE_DBC, hDbc, SQL_COMMIT);
+                SQLSetConnectAttr(hDbc, SQL_ATTR_AUTOCOMMIT, (SQLPOINTER)SQL_AUTOCOMMIT_ON, 0);
+                SQLDisconnect(hDbc); SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+                hDbc = NULL; hEnv = NULL;
+                MessageBoxW(hWnd, L"Шаг 3: Успех! Транзакция зафиксирована (COMMIT).", L"Успех", MB_OK);
+                DestroyWindow(hWnd);
+            }
+        }
+        else if (LOWORD(wParam) == IDC_BTN_WIZ_CANCEL) {
+            if (step == 2 && hDbc != NULL) {
+                // ОТМЕНА (ROLLBACK) - откатываем промежуточные изменения!
+                SQLEndTran(SQL_HANDLE_DBC, hDbc, SQL_ROLLBACK);
+                SQLSetConnectAttr(hDbc, SQL_ATTR_AUTOCOMMIT, (SQLPOINTER)SQL_AUTOCOMMIT_ON, 0);
+                SQLDisconnect(hDbc); SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+                hDbc = NULL; hEnv = NULL;
+                MessageBoxW(hWnd, L"Действие отменено! Изменения в БД ОТКАТИЛИСЬ (ROLLBACK).", L"Откат", MB_ICONWARNING);
+            }
+            DestroyWindow(hWnd);
+        }
+        break;
+    case WM_DESTROY:
+        if (hDbc != NULL) { // Страховка при закрытии крестиком
+            SQLEndTran(SQL_HANDLE_DBC, hDbc, SQL_ROLLBACK);
+            SQLDisconnect(hDbc); SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+            hDbc = NULL;
         }
         break;
     default: return DefWindowProc(hWnd, message, wParam, lParam);
