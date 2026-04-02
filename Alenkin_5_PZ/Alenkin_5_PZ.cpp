@@ -36,6 +36,14 @@
 #define IDC_EDIT_PROD_PRICE 121
 #define IDC_BTN_SAVE_PRODUCT 122
 
+// НОВЫЕ ID ДЛЯ МАТЕРИАЛОВ И ЮЗЕРОВ
+#define IDC_EDIT_MAT_NAME 123
+#define IDC_BTN_ADD_MAT 124
+#define IDC_EDIT_USR_LOGIN 125
+#define IDC_EDIT_USR_PASS 126
+#define IDC_EDIT_USR_ROLE 127
+#define IDC_BTN_ADD_USR 128
+
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
@@ -44,9 +52,11 @@ WCHAR szEditorClass[] = L"EditorWindow";
 WCHAR szAnalyticsClass[] = L"AnalyticsWindow";
 WCHAR szWizardClass[] = L"WizardWindow";
 WCHAR szProductClass[] = L"ProductWindow";
-// НОВЫЕ КЛАССЫ ДЛЯ МАТЕРИАЛОВ И ЮЗЕРОВ
 WCHAR szMaterialsClass[] = L"MaterialsWindow";
 WCHAR szUsersClass[] = L"UsersWindow";
+
+// Глобальная переменная для хранения роли текущего пользователя (1 - Админ)
+int g_CurrentRoleID = 0;
 
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
@@ -56,8 +66,8 @@ LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    AnalyticsWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    WizardWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    ProductWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    MaterialsWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Материалов
-LRESULT CALLBACK    UsersWndProc(HWND, UINT, WPARAM, LPARAM);     // Анонс Юзеров
+LRESULT CALLBACK    MaterialsWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    UsersWndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 std::wstring GenerateSHA256(const std::wstring& input)
@@ -166,7 +176,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexProd.lpszClassName = szProductClass;
     RegisterClassExW(&wcexProd);
 
-    // РЕГИСТРАЦИЯ НОВЫХ ФОРМ (МАТЕРИАЛЫ И ЮЗЕРЫ)
     WNDCLASSEXW wcexMat = { 0 };
     wcexMat.cbSize = sizeof(WNDCLASSEX);
     wcexMat.style = CS_HREDRAW | CS_VREDRAW;
@@ -262,10 +271,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
                 SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
                 wchar_t query[512];
-                swprintf_s(query, 512, L"SELECT UserID FROM Users WHERE Username = '%ls' AND PasswordHash = '%ls'", username, passHash.c_str());
+                // ВАЖНО: Добавил чтение RoleID для проверки админа
+                swprintf_s(query, 512, L"SELECT UserID, RoleID FROM Users WHERE Username = '%ls' AND PasswordHash = '%ls'", username, passHash.c_str());
 
                 if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
                     if (SQLFetch(hStmt) == SQL_SUCCESS) {
+
+                        // Сохраняем RoleID в глобальную переменную
+                        SQLINTEGER rId = 0; SQLLEN cbRole = 0;
+                        SQLGetData(hStmt, 2, SQL_C_SLONG, &rId, sizeof(rId), &cbRole);
+                        g_CurrentRoleID = rId;
+
                         SQLCloseCursor(hStmt);
 
                         HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 800, 700, nullptr, nullptr, hInst, nullptr);
@@ -372,12 +388,13 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         else if (wmId == IDC_BTN_ADD_PRODUCT) {
             HWND hProd = CreateWindowW(szProductClass, L"Добавление продукции", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 300, 300, 300, 250, nullptr, nullptr, hInst, nullptr);
         }
-        // ВМЕСТО ЗАГЛУШЕК ТЕПЕРЬ ОТКРЫВАЮТСЯ РЕАЛЬНЫЕ ОКНА
         else if (wmId == IDC_BTN_MANAGE_MATERIALS) {
-            HWND hMat = CreateWindowW(szMaterialsClass, L"Справочник материалов", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 350, 350, 500, 400, nullptr, nullptr, hInst, nullptr);
+            // УВЕЛИЧИЛИ ШИРИНУ ДО 680, ЧТОБЫ ВЛЕЗЛИ КНОПКИ
+            HWND hMat = CreateWindowW(szMaterialsClass, L"Справочник материалов", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 350, 350, 680, 400, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_MANAGE_USERS) {
-            HWND hUsr = CreateWindowW(szUsersClass, L"Пользователи", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 400, 400, 500, 400, nullptr, nullptr, hInst, nullptr);
+            // УВЕЛИЧИЛИ ШИРИНУ ДО 680, ЧТОБЫ ВЛЕЗЛИ КНОПКИ
+            HWND hUsr = CreateWindowW(szUsersClass, L"Пользователи", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 400, 400, 680, 400, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_FILTER) {
             wchar_t filterVal[50];
@@ -705,7 +722,7 @@ LRESULT CALLBACK ProductWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 // ---------------- ФОРМА 7: СПРАВОЧНИК МАТЕРИАЛОВ (СВЯЗЬ С БД) ----------------
 LRESULT CALLBACK MaterialsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static HWND hListViewMat;
+    static HWND hListViewMat, hEditMatName;
     switch (message)
     {
     case WM_CREATE:
@@ -718,13 +735,17 @@ LRESULT CALLBACK MaterialsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         lvc.iSubItem = 0; lvc.cx = 50; lvc.pszText = (LPWSTR)L"ID"; ListView_InsertColumn(hListViewMat, 0, &lvc);
         lvc.iSubItem = 1; lvc.cx = 350; lvc.pszText = (LPWSTR)L"Название материала"; ListView_InsertColumn(hListViewMat, 1, &lvc);
 
+        // ДОБАВЛЕНЫ ЭЛЕМЕНТЫ ДЛЯ ДОБАВЛЕНИЯ МАТЕРИАЛА
+        CreateWindowW(L"STATIC", L"Название материала:", WS_VISIBLE | WS_CHILD, 480, 20, 160, 20, hWnd, NULL, hInst, NULL);
+        hEditMatName = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 480, 40, 160, 25, hWnd, (HMENU)IDC_EDIT_MAT_NAME, hInst, NULL);
+        CreateWindowW(L"BUTTON", L"Добавить материал", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 480, 80, 160, 30, hWnd, (HMENU)IDC_BTN_ADD_MAT, hInst, NULL);
+
         wchar_t connStr[256] = { 0 };
         GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
         SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
         SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
         if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
             SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
-            // Тянем данные из таблицы Materials
             if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT MaterialID, MaterialName FROM Materials", SQL_NTS))) {
                 SQLINTEGER matId; SQLWCHAR matName[100]; SQLLEN cbId, cbName;
                 int rowCount = 0;
@@ -745,6 +766,37 @@ LRESULT CALLBACK MaterialsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         break;
     }
+    case WM_COMMAND:
+    {
+        // ОБРАБОТЧИК КНОПКИ ДОБАВЛЕНИЯ МАТЕРИАЛА
+        if (LOWORD(wParam) == IDC_BTN_ADD_MAT) {
+            wchar_t matName[100];
+            GetWindowTextW(hEditMatName, matName, 100);
+            if (wcslen(matName) == 0) {
+                MessageBoxW(hWnd, L"Введите название материала!", L"Ошибка", MB_ICONWARNING);
+                return 0;
+            }
+            wchar_t connStr[256] = { 0 };
+            GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+            SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+            SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+            if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                wchar_t query[512];
+                swprintf_s(query, 512, L"INSERT INTO Materials (MaterialName) VALUES ('%ls')", matName);
+                if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
+                    MessageBoxW(hWnd, L"Материал добавлен! Переоткройте окно для обновления.", L"Успех", MB_OK);
+                    SetWindowTextW(hEditMatName, L"");
+                }
+                else {
+                    MessageBoxW(hWnd, L"Ошибка БД", L"Ошибка", MB_ICONERROR);
+                }
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+            }
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        }
+        break;
+    }
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
@@ -753,7 +805,7 @@ LRESULT CALLBACK MaterialsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
 // ---------------- ФОРМА 8: ПОЛЬЗОВАТЕЛИ (СВЯЗЬ С БД) ----------------
 LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static HWND hListViewUsr;
+    static HWND hListViewUsr, hEditUsrLogin, hEditUsrPass, hEditUsrRole;
     switch (message)
     {
     case WM_CREATE:
@@ -767,13 +819,25 @@ LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         lvc.iSubItem = 1; lvc.cx = 200; lvc.pszText = (LPWSTR)L"Логин"; ListView_InsertColumn(hListViewUsr, 1, &lvc);
         lvc.iSubItem = 2; lvc.cx = 150; lvc.pszText = (LPWSTR)L"Роль (ID)"; ListView_InsertColumn(hListViewUsr, 2, &lvc);
 
+        // ДОБАВЛЕНЫ ЭЛЕМЕНТЫ ДЛЯ СОЗДАНИЯ ЮЗЕРА (ДЛЯ АДМИНА)
+        CreateWindowW(L"STATIC", L"Логин:", WS_VISIBLE | WS_CHILD, 480, 20, 160, 20, hWnd, NULL, hInst, NULL);
+        hEditUsrLogin = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 480, 40, 160, 25, hWnd, (HMENU)IDC_EDIT_USR_LOGIN, hInst, NULL);
+
+        CreateWindowW(L"STATIC", L"Пароль:", WS_VISIBLE | WS_CHILD, 480, 70, 160, 20, hWnd, NULL, hInst, NULL);
+        hEditUsrPass = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_PASSWORD, 480, 90, 160, 25, hWnd, (HMENU)IDC_EDIT_USR_PASS, hInst, NULL);
+
+        CreateWindowW(L"STATIC", L"ID Роли (1-Админ, 2-Юзер):", WS_VISIBLE | WS_CHILD, 480, 120, 180, 20, hWnd, NULL, hInst, NULL);
+        hEditUsrRole = CreateWindowW(L"EDIT", L"2", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER, 480, 140, 160, 25, hWnd, (HMENU)IDC_EDIT_USR_ROLE, hInst, NULL);
+
+        CreateWindowW(L"BUTTON", L"Добавить", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 480, 180, 160, 30, hWnd, (HMENU)IDC_BTN_ADD_USR, hInst, NULL);
+
+
         wchar_t connStr[256] = { 0 };
         GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
         SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
         SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
         if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
             SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
-            // Тянем данные из таблицы Users
             if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT UserID, Username, RoleID FROM Users", SQL_NTS))) {
                 SQLINTEGER uId, rId; SQLWCHAR uName[100]; SQLLEN cbId, cbName, cbRole;
                 int rowCount = 0;
@@ -799,17 +863,61 @@ LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         break;
     }
+    case WM_COMMAND:
+    {
+        // ОБРАБОТЧИК КНОПКИ ДОБАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯ
+        if (LOWORD(wParam) == IDC_BTN_ADD_USR) {
+
+            // ПРОБИВАЕМ НА АДМИНА! Если не админ (RoleID != 1), шлем лесом
+            if (g_CurrentRoleID != 1) {
+                MessageBoxW(hWnd, L"Отказано в доступе!\nТолько Администратор может добавлять пользователей.", L"Ошибка доступа", MB_ICONERROR);
+                return 0;
+            }
+
+            wchar_t uLogin[100], uPass[100], uRole[10];
+            GetWindowTextW(hEditUsrLogin, uLogin, 100);
+            GetWindowTextW(hEditUsrPass, uPass, 100);
+            GetWindowTextW(hEditUsrRole, uRole, 10);
+
+            if (wcslen(uLogin) == 0 || wcslen(uPass) == 0 || wcslen(uRole) == 0) {
+                MessageBoxW(hWnd, L"Заполните все поля!", L"Ошибка", MB_ICONWARNING);
+                return 0;
+            }
+
+            std::wstring hash = GenerateSHA256(uPass); // Пароль шифруем, как просил Попов
+
+            wchar_t connStr[256] = { 0 };
+            GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+            SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+            SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+            if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                wchar_t query[512];
+                swprintf_s(query, 512, L"INSERT INTO Users (Username, PasswordHash, RoleID) VALUES ('%ls', '%ls', %ls)", uLogin, hash.c_str(), uRole);
+                if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
+                    MessageBoxW(hWnd, L"Пользователь добавлен! Переоткройте окно для обновления.", L"Успех", MB_OK);
+                    SetWindowTextW(hEditUsrLogin, L"");
+                    SetWindowTextW(hEditUsrPass, L"");
+                }
+                else {
+                    MessageBoxW(hWnd, L"Ошибка БД (возможно логин уже занят)", L"Ошибка", MB_ICONERROR);
+                }
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+            }
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        }
+        break;
+    }
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
 }
+
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-
     UNREFERENCED_PARAMETER(lParam);
     switch (message)
     {
-
     case WM_INITDIALOG: return (INT_PTR)TRUE;
     case WM_COMMAND:
         if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
@@ -817,6 +925,5 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     }
-
     return (INT_PTR)FALSE;
 }
