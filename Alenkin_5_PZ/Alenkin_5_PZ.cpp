@@ -213,8 +213,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             GetWindowTextW(hUsernameEdit, username, 100);
             GetWindowTextW(hPasswordEdit, password, 100);
 
-            // Заглушка: тут будет хеширование SHA-256 и запрос к БД через ODBC
-            MessageBoxW(hWnd, L"Попытка входа зафиксирована. Скоро тут будет подключение к БД!", L"Статус", MB_OK);
+            // 1. Хэшируем пароль
+            std::wstring passHash = GenerateSHA256(password);
+
+            // 2. Читаем строку подключения из config.ini
+            wchar_t connStr[256];
+            GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+
+            // Собираем сообщение для проверки (временно, чтобы убедиться, что всё работает)
+            std::wstring debugMsg = L"Логин: " + std::wstring(username) +
+                L"\nХэш пароля: " + passHash +
+                L"\nСтрока БД: " + std::wstring(connStr);
+
+            MessageBoxW(hWnd, debugMsg.c_str(), L"Отладка", MB_OK);
         }
 
         // Разобрать стандартный выбор в меню:
