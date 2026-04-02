@@ -1,7 +1,4 @@
-﻿// Alenkin_5_PZ.cpp : Определяет точку входа для приложения.
-//
-
-#include "framework.h"
+﻿#include "framework.h"
 #include "Alenkin_5_PZ.h"
 #define IDC_USERNAME_EDIT 101
 #define IDC_PASSWORD_EDIT 102
@@ -12,13 +9,11 @@
 #include <sqlext.h>  
 #include <string>
 
-#pragma comment(lib, "advapi32.lib") // Подключаем библиотеку криптографии
-// Глобальные переменные:
-HINSTANCE hInst;                                // текущий экземпляр
-WCHAR szTitle[MAX_LOADSTRING];                  // Текст строки заголовка
-WCHAR szWindowClass[MAX_LOADSTRING];            // имя класса главного окна
-
-// Отправить объявления функций, включенных в этот модуль кода:
+#pragma comment(lib, "advapi32.lib")
+HINSTANCE hInst;    
+WCHAR szDashboardClass[] = L"DashboardWindow";
+WCHAR szTitle[MAX_LOADSTRING];
+WCHAR szWindowClass[MAX_LOADSTRING];
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -31,10 +26,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
-
-    // TODO: Разместите код здесь.
-
-    // Инициализация глобальных строк
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_ALENKIN5PZ, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
@@ -48,8 +39,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_ALENKIN5PZ));
 
     MSG msg;
-
-    // Цикл основного сообщения:
+    // Регистрация класса окна Дашборда
+    WNDCLASSEXW wcexDash;
+    wcexDash.cbSize = sizeof(WNDCLASSEX);
+    wcexDash.style = CS_HREDRAW | CS_VREDRAW;
+    wcexDash.lpfnWndProc = DashboardWndProc;
+    wcexDash.cbClsExtra = 0;
+    wcexDash.cbWndExtra = 0;
+    wcexDash.hInstance = hInstance;
+    wcexDash.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ALENKIN5PZ));
+    wcexDash.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexDash.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcexDash.lpszMenuName = NULL;
+    wcexDash.lpszClassName = szDashboardClass;
+    wcexDash.hIconSm = LoadIcon(wcexDash.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+    RegisterClassExW(&wcexDash);
     while (GetMessage(&msg, nullptr, 0, 0))
     {
         if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
@@ -62,13 +66,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int) msg.wParam;
 }
 
-
-
-//
-//  ФУНКЦИЯ: MyRegisterClass()
-//
-//  ЦЕЛЬ: Регистрирует класс окна.
-//
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
     WNDCLASSEXW wcex;
@@ -90,16 +87,6 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
-//
-//   ФУНКЦИЯ: InitInstance(HINSTANCE, int)
-//
-//   ЦЕЛЬ: Сохраняет маркер экземпляра и создает главное окно
-//
-//   КОММЕНТАРИИ:
-//
-//        В этой функции маркер экземпляра сохраняется в глобальной переменной, а также
-//        создается и выводится главное окно программы.
-//
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // Сохранить маркер экземпляра в глобальной переменной
@@ -117,19 +104,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    return TRUE;
 }
-
-//
-//  ФУНКЦИЯ: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  ЦЕЛЬ: Обрабатывает сообщения в главном окне.
-//
-//  WM_COMMAND  - обработать меню приложения
-//  WM_PAINT    - Отрисовка главного окна
-//  WM_DESTROY  - отправить сообщение о выходе и вернуться
-//
-//
-// Функция для генерации SHA-256 хэша средствами Windows API
-// Исправленная функция: сначала конвертируем в UTF-8, потом делаем SHA-256
 std::wstring GenerateSHA256(const std::wstring& input)
 {
     // 1. Конвертируем wstring (UTF-16) в string (UTF-8)
@@ -174,6 +148,7 @@ std::wstring GenerateSHA256(const std::wstring& input)
     }
     return hashStr;
 }
+LRESULT CALLBACK DashboardWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     // Глобальные переменные для элементов управления (чтобы считывать с них текст)
@@ -262,12 +237,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     if (SQLFetch(hStmt) == SQL_SUCCESS) {
                         SQLINTEGER userId = 0, roleId = 0;
                         SQLLEN cbUserId = 0, cbRoleId = 0;
-
-                        // Вытаскиваем данные из колонок
                         SQLGetData(hStmt, 1, SQL_C_SLONG, &userId, sizeof(userId), &cbUserId);
                         SQLGetData(hStmt, 2, SQL_C_SLONG, &roleId, sizeof(roleId), &cbRoleId);
 
-                        MessageBoxW(hWnd, L"Авторизация успешна! Доступ разрешен.", L"Успех", MB_OK);
+                        SQLHSTMT hLogStmt = NULL;
+                        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hLogStmt);
+                        wchar_t logQuery[512];
+                        swprintf_s(logQuery, 512, L"INSERT INTO Sessions (UserID, IPAddress) VALUES (%d, '127.0.0.1')", userId);
+                        SQLExecDirectW(hLogStmt, logQuery, SQL_NTS);
+                        SQLFreeHandle(SQL_HANDLE_STMT, hLogStmt);
+
+                        MessageBoxW(hWnd, L"Доступ разрешен. Вход записан в системный журнал.", L"Успех", MB_OK);
+
+                        // 2. Скрываем окно авторизации
+                        ShowWindow(hWnd, SW_HIDE);
+
+                        // 3. Создаем и показываем форму Дашборда
+                        HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд - Панель управления",
+                            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                            CW_USEDEFAULT, 0, 800, 600, nullptr, nullptr, hInst, nullptr);
 
                         // Заготовка на будущее:
                         // 1. Сделать запись в SystemLogs (ID сессии и IP) [cite: 20]
@@ -342,4 +330,27 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     }
     return (INT_PTR)FALSE;
+
+}
+// Обработчик окна Главного Дашборда
+LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        // Выведем текст приветствия на новой форме
+        TextOutW(hdc, 50, 50, L"Добро пожаловать в систему управления производством!", 52);
+        EndPaint(hWnd, &ps);
+    }
+    break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
 }
