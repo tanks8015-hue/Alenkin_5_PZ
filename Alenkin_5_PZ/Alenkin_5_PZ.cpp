@@ -3,9 +3,16 @@
 
 #include "framework.h"
 #include "Alenkin_5_PZ.h"
-
+#define IDC_USERNAME_EDIT 101
+#define IDC_PASSWORD_EDIT 102
+#define IDC_LOGIN_BUTTON 103
 #define MAX_LOADSTRING 100
+#include <wincrypt.h> 
+#include <sql.h>     
+#include <sqlext.h>  
+#include <string>
 
+#pragma comment(lib, "advapi32.lib") // Подключаем библиотеку криптографии
 // Глобальные переменные:
 HINSTANCE hInst;                                // текущий экземпляр
 WCHAR szTitle[MAX_LOADSTRING];                  // Текст строки заголовка
@@ -121,35 +128,116 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //  WM_DESTROY  - отправить сообщение о выходе и вернуться
 //
 //
+// Функция для генерации SHA-256 хэша средствами Windows API
+std::wstring GenerateSHA256(const std::wstring& input)
+{
+    HCRYPTPROV hProv = 0;
+    HCRYPTHASH hHash = 0;
+    std::wstring hashStr = L"";
+
+    if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+    {
+        if (CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
+        {
+            if (CryptHashData(hHash, (const BYTE*)input.c_str(), input.length() * sizeof(wchar_t), 0))
+            {
+                DWORD hashLen = 0;
+                DWORD hashLenSize = sizeof(DWORD);
+                CryptGetHashParam(hHash, HP_HASHSIZE, (BYTE*)&hashLen, &hashLenSize, 0);
+
+                if (hashLen > 0)
+                {
+                    BYTE* pbHash = new BYTE[hashLen];
+                    if (CryptGetHashParam(hHash, HP_HASHVAL, pbHash, &hashLen, 0))
+                    {
+                        wchar_t hex[3];
+                        for (DWORD i = 0; i < hashLen; i++)
+                        {
+                            swprintf_s(hex, 3, L"%02x", pbHash[i]);
+                            hashStr += hex;
+                        }
+                    }
+                    delete[] pbHash;
+                }
+            }
+            CryptDestroyHash(hHash);
+        }
+        CryptReleaseContext(hProv, 0);
+    }
+    return hashStr;
+}
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    // Глобальные переменные для элементов управления (чтобы считывать с них текст)
+    static HWND hUsernameEdit;
+    static HWND hPasswordEdit;
+    static HWND hLoginButton;
+
     switch (message)
     {
+    case WM_CREATE:
+    {
+        // Текст "Логин"
+        CreateWindowW(L"STATIC", L"Логин:", WS_VISIBLE | WS_CHILD,
+            50, 50, 100, 20, hWnd, NULL, hInst, NULL);
+
+        // Поле ввода логина
+        hUsernameEdit = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,
+            50, 70, 200, 25, hWnd, (HMENU)IDC_USERNAME_EDIT, hInst, NULL);
+
+        // Текст "Пароль"
+        CreateWindowW(L"STATIC", L"Пароль:", WS_VISIBLE | WS_CHILD,
+            50, 100, 100, 20, hWnd, NULL, hInst, NULL);
+
+        // Поле ввода пароля (с маской ES_PASSWORD для звездочек)
+        hPasswordEdit = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_PASSWORD | ES_AUTOHSCROLL,
+            50, 120, 200, 25, hWnd, (HMENU)IDC_PASSWORD_EDIT, hInst, NULL);
+
+        // Кнопка "Войти"
+        hLoginButton = CreateWindowW(L"BUTTON", L"Войти", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+            50, 160, 200, 30, hWnd, (HMENU)IDC_LOGIN_BUTTON, hInst, NULL);
+
+        break;
+    }
     case WM_COMMAND:
+    {
+        int wmId = LOWORD(wParam);
+
+        // Проверяем, не нажата ли наша кнопка "Войти"
+        if (wmId == IDC_LOGIN_BUTTON)
         {
-            int wmId = LOWORD(wParam);
-            // Разобрать выбор в меню:
-            switch (wmId)
-            {
-            case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_EXIT:
-                DestroyWindow(hWnd);
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
+            // Буферы для чтения логина и пароля
+            wchar_t username[100];
+            wchar_t password[100];
+
+            GetWindowTextW(hUsernameEdit, username, 100);
+            GetWindowTextW(hPasswordEdit, password, 100);
+
+            // Заглушка: тут будет хеширование SHA-256 и запрос к БД через ODBC
+            MessageBoxW(hWnd, L"Попытка входа зафиксирована. Скоро тут будет подключение к БД!", L"Статус", MB_OK);
         }
-        break;
+
+        // Разобрать стандартный выбор в меню:
+        switch (wmId)
+        {
+        case IDM_ABOUT:
+            DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+            break;
+        case IDM_EXIT:
+            DestroyWindow(hWnd);
+            break;
+        default:
+            return DefWindowProc(hWnd, message, wParam, lParam);
+        }
+    }
+    break;
     case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            // TODO: Добавьте сюда любой код прорисовки, использующий HDC...
-            EndPaint(hWnd, &ps);
-        }
-        break;
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        EndPaint(hWnd, &ps);
+    }
+    break;
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
