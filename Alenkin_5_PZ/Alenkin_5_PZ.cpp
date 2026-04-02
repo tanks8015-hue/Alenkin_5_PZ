@@ -7,7 +7,7 @@
 #include <commctrl.h> 
 #include <thread> 
 #include <fstream> 
-#include <commdlg.h> // ДОБАВЛЕНО ДЛЯ ДИАЛОГА "СОХРАНИТЬ КАК"
+#include <commdlg.h> 
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -38,7 +38,7 @@
 #define IDC_EDIT_PROD_PRICE 121
 #define IDC_BTN_SAVE_PRODUCT 122
 
-// НОВЫЕ ID ДЛЯ МАТЕРИАЛОВ И ЮЗЕРОВ
+// ID ДЛЯ МАТЕРИАЛОВ И ЮЗЕРОВ
 #define IDC_EDIT_MAT_NAME 123
 #define IDC_BTN_ADD_MAT 124
 #define IDC_EDIT_USR_LOGIN 125
@@ -58,6 +58,15 @@
 #define IDC_BTN_CP_SAVE 137
 #define IDC_STATUSBAR 138
 
+// ID ДЛЯ ФИЧ PRO УРОВНЯ
+#define IDM_CTX_EDIT 201
+#define IDM_CTX_DELETE 202
+#define IDM_CTX_EXPORT 203
+#define IDH_F5 301
+#define IDH_DELETE 302
+#define IDH_CTRLE 303
+#define IDC_BTN_UPDATE_PRODUCT 304
+
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
@@ -69,9 +78,20 @@ WCHAR szProductClass[] = L"ProductWindow";
 WCHAR szMaterialsClass[] = L"MaterialsWindow";
 WCHAR szUsersClass[] = L"UsersWindow";
 WCHAR szChangePassClass[] = L"ChangePassWindow";
+WCHAR szEditProdClass[] = L"EditProdWindow"; // КЛАСС РЕДАКТИРОВАНИЯ ТОВАРА
 
-// Глобальная переменная для хранения роли текущего пользователя (1 - Админ)
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 int g_CurrentRoleID = 0;
+int g_SortCol = 0;
+bool g_SortAsc = true;
+double g_ChartProdSum = 0;
+double g_ChartMatSum = 0;
+bool g_ChartReady = false;
+
+// ПЕРЕМЕННЫЕ ДЛЯ ПЕРЕДАЧИ ДАННЫХ В ФОРМУ РЕДАКТИРОВАНИЯ (UPDATE)
+int g_EditProdID = 0;
+WCHAR g_EditProdName[100] = { 0 };
+WCHAR g_EditProdPrice[50] = { 0 };
 
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
@@ -84,7 +104,26 @@ LRESULT CALLBACK    ProductWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    MaterialsWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    UsersWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    ChangePassWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    EditProdWndProc(HWND, UINT, WPARAM, LPARAM); // ПРОЦЕДУРА РЕДАКТИРОВАНИЯ
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+
+// ФУНКЦИЯ ДЛЯ СОРТИРОВКИ КОЛОНОК (CALLBACK)
+int CALLBACK CompareFuncEx(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort) {
+    HWND hList = (HWND)lParamSort;
+    wchar_t b1[100] = { 0 }, b2[100] = { 0 };
+    ListView_GetItemText(hList, lParam1, g_SortCol, b1, 100);
+    ListView_GetItemText(hList, lParam2, g_SortCol, b2, 100);
+    if (g_SortCol == 1) { // Сортировка текста
+        int res = wcscmp(b1, b2);
+        return g_SortAsc ? res : -res;
+    }
+    else { // Сортировка чисел (ID или Цена)
+        double f1 = _wtof(b1); double f2 = _wtof(b2);
+        if (f1 == f2) return 0;
+        int res = (f1 > f2) ? 1 : -1;
+        return g_SortAsc ? res : -res;
+    }
+}
 
 std::wstring GenerateSHA256(const std::wstring& input)
 {
@@ -141,86 +180,42 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 
     MyRegisterClass(hInstance);
 
-    WNDCLASSEXW wcexDash = { 0 };
-    wcexDash.cbSize = sizeof(WNDCLASSEX);
-    wcexDash.style = CS_HREDRAW | CS_VREDRAW;
-    wcexDash.lpfnWndProc = DashboardWndProc;
-    wcexDash.hInstance = hInstance;
-    wcexDash.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ALENKIN5PZ));
-    wcexDash.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexDash.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexDash.lpszClassName = szDashboardClass;
-    RegisterClassExW(&wcexDash);
+    WNDCLASSEXW wcexDash = { 0 }; wcexDash.cbSize = sizeof(WNDCLASSEX); wcexDash.style = CS_HREDRAW | CS_VREDRAW;
+    wcexDash.lpfnWndProc = DashboardWndProc; wcexDash.hInstance = hInstance; wcexDash.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ALENKIN5PZ));
+    wcexDash.hCursor = LoadCursor(nullptr, IDC_ARROW); wcexDash.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexDash.lpszClassName = szDashboardClass; RegisterClassExW(&wcexDash);
 
-    WNDCLASSEXW wcexEd = { 0 };
-    wcexEd.cbSize = sizeof(WNDCLASSEX);
-    wcexEd.style = CS_HREDRAW | CS_VREDRAW;
-    wcexEd.lpfnWndProc = EditorWndProc;
-    wcexEd.hInstance = hInstance;
-    wcexEd.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexEd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexEd.lpszClassName = szEditorClass;
-    RegisterClassExW(&wcexEd);
+    WNDCLASSEXW wcexEd = { 0 }; wcexEd.cbSize = sizeof(WNDCLASSEX); wcexEd.style = CS_HREDRAW | CS_VREDRAW;
+    wcexEd.lpfnWndProc = EditorWndProc; wcexEd.hInstance = hInstance; wcexEd.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexEd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexEd.lpszClassName = szEditorClass; RegisterClassExW(&wcexEd);
 
-    WNDCLASSEXW wcexAn = { 0 };
-    wcexAn.cbSize = sizeof(WNDCLASSEX);
-    wcexAn.style = CS_HREDRAW | CS_VREDRAW;
-    wcexAn.lpfnWndProc = AnalyticsWndProc;
-    wcexAn.hInstance = hInstance;
-    wcexAn.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexAn.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexAn.lpszClassName = szAnalyticsClass;
-    RegisterClassExW(&wcexAn);
+    WNDCLASSEXW wcexAn = { 0 }; wcexAn.cbSize = sizeof(WNDCLASSEX); wcexAn.style = CS_HREDRAW | CS_VREDRAW;
+    wcexAn.lpfnWndProc = AnalyticsWndProc; wcexAn.hInstance = hInstance; wcexAn.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexAn.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexAn.lpszClassName = szAnalyticsClass; RegisterClassExW(&wcexAn);
 
-    WNDCLASSEXW wcexWiz = { 0 };
-    wcexWiz.cbSize = sizeof(WNDCLASSEX);
-    wcexWiz.style = CS_HREDRAW | CS_VREDRAW;
-    wcexWiz.lpfnWndProc = WizardWndProc;
-    wcexWiz.hInstance = hInstance;
-    wcexWiz.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexWiz.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexWiz.lpszClassName = szWizardClass;
-    RegisterClassExW(&wcexWiz);
+    WNDCLASSEXW wcexWiz = { 0 }; wcexWiz.cbSize = sizeof(WNDCLASSEX); wcexWiz.style = CS_HREDRAW | CS_VREDRAW;
+    wcexWiz.lpfnWndProc = WizardWndProc; wcexWiz.hInstance = hInstance; wcexWiz.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexWiz.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexWiz.lpszClassName = szWizardClass; RegisterClassExW(&wcexWiz);
 
-    WNDCLASSEXW wcexProd = { 0 };
-    wcexProd.cbSize = sizeof(WNDCLASSEX);
-    wcexProd.style = CS_HREDRAW | CS_VREDRAW;
-    wcexProd.lpfnWndProc = ProductWndProc;
-    wcexProd.hInstance = hInstance;
-    wcexProd.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexProd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexProd.lpszClassName = szProductClass;
-    RegisterClassExW(&wcexProd);
+    WNDCLASSEXW wcexProd = { 0 }; wcexProd.cbSize = sizeof(WNDCLASSEX); wcexProd.style = CS_HREDRAW | CS_VREDRAW;
+    wcexProd.lpfnWndProc = ProductWndProc; wcexProd.hInstance = hInstance; wcexProd.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexProd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexProd.lpszClassName = szProductClass; RegisterClassExW(&wcexProd);
 
-    WNDCLASSEXW wcexMat = { 0 };
-    wcexMat.cbSize = sizeof(WNDCLASSEX);
-    wcexMat.style = CS_HREDRAW | CS_VREDRAW;
-    wcexMat.lpfnWndProc = MaterialsWndProc;
-    wcexMat.hInstance = hInstance;
-    wcexMat.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexMat.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexMat.lpszClassName = szMaterialsClass;
-    RegisterClassExW(&wcexMat);
+    WNDCLASSEXW wcexMat = { 0 }; wcexMat.cbSize = sizeof(WNDCLASSEX); wcexMat.style = CS_HREDRAW | CS_VREDRAW;
+    wcexMat.lpfnWndProc = MaterialsWndProc; wcexMat.hInstance = hInstance; wcexMat.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexMat.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexMat.lpszClassName = szMaterialsClass; RegisterClassExW(&wcexMat);
 
-    WNDCLASSEXW wcexUsr = { 0 };
-    wcexUsr.cbSize = sizeof(WNDCLASSEX);
-    wcexUsr.style = CS_HREDRAW | CS_VREDRAW;
-    wcexUsr.lpfnWndProc = UsersWndProc;
-    wcexUsr.hInstance = hInstance;
-    wcexUsr.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexUsr.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexUsr.lpszClassName = szUsersClass;
-    RegisterClassExW(&wcexUsr);
+    WNDCLASSEXW wcexUsr = { 0 }; wcexUsr.cbSize = sizeof(WNDCLASSEX); wcexUsr.style = CS_HREDRAW | CS_VREDRAW;
+    wcexUsr.lpfnWndProc = UsersWndProc; wcexUsr.hInstance = hInstance; wcexUsr.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexUsr.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexUsr.lpszClassName = szUsersClass; RegisterClassExW(&wcexUsr);
 
-    WNDCLASSEXW wcexCP = { 0 };
-    wcexCP.cbSize = sizeof(WNDCLASSEX);
-    wcexCP.style = CS_HREDRAW | CS_VREDRAW;
-    wcexCP.lpfnWndProc = ChangePassWndProc;
-    wcexCP.hInstance = hInstance;
-    wcexCP.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcexCP.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcexCP.lpszClassName = szChangePassClass;
-    RegisterClassExW(&wcexCP);
+    WNDCLASSEXW wcexCP = { 0 }; wcexCP.cbSize = sizeof(WNDCLASSEX); wcexCP.style = CS_HREDRAW | CS_VREDRAW;
+    wcexCP.lpfnWndProc = ChangePassWndProc; wcexCP.hInstance = hInstance; wcexCP.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexCP.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexCP.lpszClassName = szChangePassClass; RegisterClassExW(&wcexCP);
+
+    // РЕГИСТРАЦИЯ ОКНА РЕДАКТИРОВАНИЯ ТОВАРА
+    WNDCLASSEXW wcexEditP = { 0 }; wcexEditP.cbSize = sizeof(WNDCLASSEX); wcexEditP.style = CS_HREDRAW | CS_VREDRAW;
+    wcexEditP.lpfnWndProc = EditProdWndProc; wcexEditP.hInstance = hInstance; wcexEditP.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexEditP.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); wcexEditP.lpszClassName = szEditProdClass; RegisterClassExW(&wcexEditP);
 
     if (!InitInstance(hInstance, nCmdShow)) return FALSE;
 
@@ -338,6 +333,11 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
     {
     case WM_CREATE:
     {
+        // РЕГИСТРАЦИЯ ХОТКЕЕВ
+        RegisterHotKey(hWnd, IDH_F5, 0, VK_F5);
+        RegisterHotKey(hWnd, IDH_DELETE, 0, VK_DELETE);
+        RegisterHotKey(hWnd, IDH_CTRLE, MOD_CONTROL, 'E');
+
         CreateWindowW(L"STATIC", L"Имя:", WS_VISIBLE | WS_CHILD, 180, 20, 40, 20, hWnd, NULL, hInst, NULL);
         hEditSearchName = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 220, 20, 100, 20, hWnd, (HMENU)IDC_EDIT_SEARCH_NAME, hInst, NULL);
 
@@ -377,34 +377,42 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         lvc.iSubItem = 2; lvc.cx = 150; lvc.pszText = (LPWSTR)L"Цена"; ListView_InsertColumn(hListView, 2, &lvc);
 
         hStatus = CreateWindowExW(0, STATUSCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0, hWnd, (HMENU)IDC_STATUSBAR, hInst, NULL);
-        SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Система загружена.");
+        SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Система загружена. (F5 - Обновить, Del - Удалить)");
 
-        wchar_t connStr[256] = { 0 };
-        GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
-        SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
-        SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
-        if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
-            SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
-            if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT ProductID, ProductName, BasePrice FROM Products", SQL_NTS))) {
-                SQLINTEGER prodId; SQLWCHAR prodName[100]; SQLWCHAR priceStr[50]; SQLLEN cbId, cbName, cbPrice;
-                int rowCount = 0;
-                while (SQLFetch(hStmt) == SQL_SUCCESS) {
-                    SQLGetData(hStmt, 1, SQL_C_SLONG, &prodId, sizeof(prodId), &cbId);
-                    SQLGetData(hStmt, 2, SQL_C_WCHAR, prodName, sizeof(prodName), &cbName);
-                    SQLGetData(hStmt, 3, SQL_C_WCHAR, priceStr, sizeof(priceStr), &cbPrice);
-
-                    LVITEMW lvi = { 0 }; lvi.mask = LVIF_TEXT; lvi.iItem = rowCount; lvi.iSubItem = 0;
-                    wchar_t idBuf[20]; swprintf_s(idBuf, 20, L"%d", prodId);
-                    lvi.pszText = idBuf;
-                    ListView_InsertItem(hListView, &lvi);
-                    ListView_SetItemText(hListView, rowCount, 1, prodName);
-                    ListView_SetItemText(hListView, rowCount, 2, priceStr);
-                    rowCount++;
-                }
+        // Вызываем поиск чтобы загрузить данные
+        SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_FILTER, 0), 0);
+        break;
+    }
+    case WM_HOTKEY: // ОБРАБОТКА ГОРЯЧИХ КЛАВИШ
+        if (wParam == IDH_F5) SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_FILTER, 0), 0);
+        if (wParam == IDH_DELETE) SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_DELETE_PROD, 0), 0);
+        if (wParam == IDH_CTRLE) SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_EXPORT, 0), 0);
+        break;
+    case WM_NOTIFY:
+    {
+        // КОНТЕКСТНОЕ МЕНЮ И СОРТИРОВКА
+        if (((LPNMHDR)lParam)->hwndFrom == hListView) {
+            if (((LPNMHDR)lParam)->code == NM_RCLICK) {
+                HMENU hMenu = CreatePopupMenu();
+                InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, IDM_CTX_EDIT, L"Изменить (UPDATE)");
+                InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING, IDM_CTX_DELETE, L"Удалить (DELETE)");
+                InsertMenuW(hMenu, 2, MF_SEPARATOR, 0, NULL);
+                InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, IDM_CTX_EXPORT, L"Экспорт в CSV");
+                POINT pt; GetCursorPos(&pt);
+                TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+                DestroyMenu(hMenu);
             }
-            SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+            if (((LPNMHDR)lParam)->code == NM_DBLCLK) {
+                SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDM_CTX_EDIT, 0), 0);
+            }
+            if (((LPNMHDR)lParam)->code == LVN_COLUMNCLICK) {
+                LPNMLISTVIEW pnmv = (LPNMLISTVIEW)lParam;
+                if (g_SortCol == pnmv->iSubItem) g_SortAsc = !g_SortAsc;
+                else { g_SortCol = pnmv->iSubItem; g_SortAsc = true; }
+                ListView_SortItemsEx(hListView, CompareFuncEx, (LPARAM)hListView);
+                SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Таблица отсортирована.");
+            }
         }
-        SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         break;
     }
     case WM_SIZE:
@@ -413,11 +421,31 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
+
+        // МЕНЮ ПКМ
+        if (wmId == IDM_CTX_DELETE) SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_DELETE_PROD, 0), 0);
+        if (wmId == IDM_CTX_EXPORT) SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_EXPORT, 0), 0);
+        if (wmId == IDM_CTX_EDIT) {
+            int selIdx = ListView_GetNextItem(hListView, -1, LVNI_SELECTED);
+            if (selIdx != -1) {
+                wchar_t idStr[20];
+                ListView_GetItemText(hListView, selIdx, 0, idStr, 20);
+                g_EditProdID = _wtoi(idStr);
+                ListView_GetItemText(hListView, selIdx, 1, g_EditProdName, 100);
+                ListView_GetItemText(hListView, selIdx, 2, g_EditProdPrice, 50);
+                CreateWindowW(szEditProdClass, L"Изменение товара (UPDATE)", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 350, 350, 300, 250, hWnd, nullptr, hInst, nullptr);
+            }
+            else {
+                MessageBoxW(hWnd, L"Выберите товар для редактирования!", L"Внимание", MB_ICONWARNING);
+            }
+        }
+
         if (wmId == IDC_BTN_OPEN_EDITOR) {
             HWND hEditor = CreateWindowW(szEditorClass, L"Карточка поставщика", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 150, 150, 450, 400, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_OPEN_ANALYTICS) {
-            HWND hAnalytics = CreateWindowW(szAnalyticsClass, L"Панель аналитики", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 200, 200, 500, 350, nullptr, nullptr, hInst, nullptr);
+            // ДЕЛАЕМ ОКНО АНАЛИТИКИ БОЛЬШЕ ДЛЯ ГРАФИКА
+            HWND hAnalytics = CreateWindowW(szAnalyticsClass, L"Панель аналитики PRO", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 200, 200, 500, 450, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_OPEN_WIZARD) {
             HWND hWiz = CreateWindowW(szWizardClass, L"Транзакционный мастер", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 250, 250, 400, 200, nullptr, nullptr, hInst, nullptr);
@@ -435,7 +463,6 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
             HWND hCp = CreateWindowW(szChangePassClass, L"Смена пароля", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 300, 300, 300, 300, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_EXPORT) {
-            // ДИАЛОГОВОЕ ОКНО СОХРАНЕНИЯ ФАЙЛА
             OPENFILENAMEW ofn;
             wchar_t szFile[260] = { 0 };
 
@@ -449,7 +476,7 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
             ofn.lpstrFileTitle = NULL;
             ofn.nMaxFileTitle = 0;
             ofn.lpstrInitialDir = NULL;
-            ofn.lpstrDefExt = L"csv"; // АВТОМАТИЧЕСКИ ПОДСТАВЛЯЕТ РАСШИРЕНИЕ
+            ofn.lpstrDefExt = L"csv";
             ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
 
             if (GetSaveFileNameW(&ofn) == TRUE) {
@@ -541,7 +568,7 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
                         ListView_SetItemText(hListView, rowCount, 2, priceStr);
                         rowCount++;
                     }
-                    wchar_t stat[100]; swprintf_s(stat, 100, L"Статус: Поиск завершен. Найдено записей: %d", rowCount);
+                    wchar_t stat[100]; swprintf_s(stat, 100, L"Статус: Данные загружены. Найдено: %d", rowCount);
                     SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)stat);
                 }
                 SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
@@ -553,11 +580,68 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
     case WM_PAINT:
     {
         PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps);
-        TextOutW(hdc, 20, 20, L"Справочник готовой продукции (Данные из SQL):", 45);
+        TextOutW(hdc, 20, 20, L"Справочник:", 11);
         EndPaint(hWnd, &ps);
         break;
     }
-    case WM_DESTROY: PostQuitMessage(0); break;
+    case WM_DESTROY:
+        UnregisterHotKey(hWnd, IDH_F5);
+        UnregisterHotKey(hWnd, IDH_DELETE);
+        UnregisterHotKey(hWnd, IDH_CTRLE);
+        PostQuitMessage(0);
+        break;
+    default: return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+// ---------------- ОКНО РЕДАКТИРОВАНИЯ (UPDATE) ----------------
+LRESULT CALLBACK EditProdWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static HWND hEditProdName, hEditProdPrice;
+    switch (message)
+    {
+    case WM_CREATE:
+        CreateWindowW(L"STATIC", L"Новое название:", WS_VISIBLE | WS_CHILD, 20, 20, 200, 20, hWnd, NULL, hInst, NULL);
+        hEditProdName = CreateWindowW(L"EDIT", g_EditProdName, WS_VISIBLE | WS_CHILD | WS_BORDER, 20, 40, 200, 25, hWnd, (HMENU)IDC_EDIT_PROD_NAME, hInst, NULL);
+
+        CreateWindowW(L"STATIC", L"Новая цена:", WS_VISIBLE | WS_CHILD, 20, 80, 200, 20, hWnd, NULL, hInst, NULL);
+        hEditProdPrice = CreateWindowW(L"EDIT", g_EditProdPrice, WS_VISIBLE | WS_CHILD | WS_BORDER, 20, 100, 200, 25, hWnd, (HMENU)IDC_EDIT_PROD_PRICE, hInst, NULL);
+
+        CreateWindowW(L"BUTTON", L"Обновить в БД (UPDATE)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 20, 150, 200, 35, hWnd, (HMENU)IDC_BTN_UPDATE_PRODUCT, hInst, NULL);
+        break;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_BTN_UPDATE_PRODUCT) {
+            wchar_t prodName[100], prodPrice[50];
+            GetWindowTextW(hEditProdName, prodName, 100);
+            GetWindowTextW(hEditProdPrice, prodPrice, 50);
+
+            if (wcslen(prodName) == 0 || wcslen(prodPrice) == 0) {
+                MessageBoxW(hWnd, L"Поля не могут быть пустыми!", L"Ошибка", MB_ICONWARNING);
+                return 0;
+            }
+
+            wchar_t connStr[256] = { 0 };
+            GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+            SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+            SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+
+            if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                wchar_t query[512];
+                swprintf_s(query, 512, L"UPDATE Products SET ProductName = '%ls', BasePrice = %ls WHERE ProductID = %d", prodName, prodPrice, g_EditProdID);
+                if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
+                    MessageBoxW(hWnd, L"Товар обновлен! Нажмите 'Поиск' или 'F5' на Дашборде для обновления таблицы.", L"Успех", MB_OK);
+                    DestroyWindow(hWnd);
+                }
+                else {
+                    MessageBoxW(hWnd, L"Ошибка БД при обновлении", L"Ошибка", MB_ICONERROR);
+                }
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+            }
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        }
+        break;
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
@@ -718,21 +802,24 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
     return 0;
 }
 
-// ---------------- ФОРМА 4: АНАЛИТИКА (АСИНХРОННОСТЬ) ----------------
+// ---------------- ФОРМА 4: АНАЛИТИКА (АСИНХРОННОСТЬ И ГРАФИКИ) ----------------
 LRESULT CALLBACK AnalyticsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
     case WM_CREATE:
-        CreateWindowW(L"BUTTON", L"Рассчитать стоимость номенклатуры", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 50, 50, 300, 40, hWnd, (HMENU)IDC_BTN_GENERATE_REPORT, hInst, NULL);
-        CreateWindowW(L"STATIC", L"Статус: Ожидание...", WS_VISIBLE | WS_CHILD, 50, 110, 400, 100, hWnd, (HMENU)IDC_LBL_REPORT_RESULT, hInst, NULL);
+        CreateWindowW(L"BUTTON", L"Рассчитать и построить график", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 50, 20, 300, 40, hWnd, (HMENU)IDC_BTN_GENERATE_REPORT, hInst, NULL);
+        CreateWindowW(L"STATIC", L"Статус: Ожидание...", WS_VISIBLE | WS_CHILD, 50, 70, 400, 40, hWnd, (HMENU)IDC_LBL_REPORT_RESULT, hInst, NULL);
+        g_ChartReady = false;
         break;
     case WM_COMMAND:
         if (LOWORD(wParam) == IDC_BTN_GENERATE_REPORT) {
-            SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, L"Статус: Выполняю тяжелый запрос в фоне...");
+            SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, L"Статус: Выполняю два тяжелых запроса в фоне...");
+            g_ChartReady = false;
+            InvalidateRect(hWnd, NULL, TRUE);
 
             std::thread([hWnd]() {
-                Sleep(2000);
+                Sleep(1500); // Имитация нагрузки
                 wchar_t connStr[256] = { 0 };
                 GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
                 SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
@@ -740,22 +827,74 @@ LRESULT CALLBACK AnalyticsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
 
                 std::wstring result = L"Статус: Ошибка запроса";
                 if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+
+                    // Запрос 1: Сумма продуктов
                     SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
                     if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT SUM(BasePrice) FROM Products", SQL_NTS))) {
                         if (SQLFetch(hStmt) == SQL_SUCCESS) {
                             SQLWCHAR sum[100]; SQLLEN cb;
                             SQLGetData(hStmt, 1, SQL_C_WCHAR, sum, sizeof(sum), &cb);
-                            result = L"ОТЧЕТ ГОТОВ!\nОбщая цена товаров: " + std::wstring(sum) + L" руб.";
+                            g_ChartProdSum = _wtof(sum);
+                            result = L"ОТЧЕТ ГОТОВ! Стоимость Продуктов: " + std::wstring(sum);
                         }
                     }
-                    SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+                    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+
+                    // Запрос 2: Сумма материалов
+                    SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                    if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT SUM(Price) FROM Materials", SQL_NTS))) {
+                        if (SQLFetch(hStmt) == SQL_SUCCESS) {
+                            SQLWCHAR sumM[100]; SQLLEN cbM;
+                            SQLGetData(hStmt, 1, SQL_C_WCHAR, sumM, sizeof(sumM), &cbM);
+                            g_ChartMatSum = _wtof(sumM);
+                            result += L" | Материалов: " + std::wstring(sumM);
+                        }
+                    }
+                    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+                    SQLDisconnect(hDbc);
+                    g_ChartReady = true;
                 }
                 SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
 
                 SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, result.c_str());
+                // Триггер на отрисовку графика
+                InvalidateRect(hWnd, NULL, TRUE);
                 }).detach();
         }
         break;
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps);
+
+        // РИСУЕМ ГРАФИК GDI ЕСЛИ ДАННЫЕ ГОТОВЫ
+        if (g_ChartReady) {
+            HBRUSH hBrushP = CreateSolidBrush(RGB(50, 150, 255)); // Синий
+            HBRUSH hBrushM = CreateSolidBrush(RGB(255, 100, 50)); // Оранжевый
+
+            double maxVal = g_ChartProdSum > g_ChartMatSum ? g_ChartProdSum : g_ChartMatSum;
+            if (maxVal == 0) maxVal = 1;
+
+            // Высота столбиков (макс 200 пикселей)
+            int pHeight = (int)((g_ChartProdSum / maxVal) * 200.0);
+            int mHeight = (int)((g_ChartMatSum / maxVal) * 200.0);
+
+            // Отрисовка столбика "Продукты"
+            RECT rcP = { 100, 350 - pHeight, 180, 350 };
+            FillRect(hdc, &rcP, hBrushP);
+            TextOutW(hdc, 105, 360, L"Продукты", 8);
+
+            // Отрисовка столбика "Материалы"
+            RECT rcM = { 220, 350 - mHeight, 300, 350 };
+            FillRect(hdc, &rcM, hBrushM);
+            TextOutW(hdc, 220, 360, L"Материалы", 9);
+
+            DeleteObject(hBrushP);
+            DeleteObject(hBrushM);
+        }
+
+        EndPaint(hWnd, &ps);
+        break;
+    }
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
