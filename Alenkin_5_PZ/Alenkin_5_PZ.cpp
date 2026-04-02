@@ -6,7 +6,8 @@
 #include <string>
 #include <commctrl.h> 
 #include <thread> 
-#include <fstream> // ДОБАВЛЕНО ДЛЯ ЭКСПОРТА CSV
+#include <fstream> 
+#include <commdlg.h> // ДОБАВЛЕНО ДЛЯ ДИАЛОГА "СОХРАНИТЬ КАК"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -67,7 +68,7 @@ WCHAR szWizardClass[] = L"WizardWindow";
 WCHAR szProductClass[] = L"ProductWindow";
 WCHAR szMaterialsClass[] = L"MaterialsWindow";
 WCHAR szUsersClass[] = L"UsersWindow";
-WCHAR szChangePassClass[] = L"ChangePassWindow"; // КЛАСС СМЕНЫ ПАРОЛЯ
+WCHAR szChangePassClass[] = L"ChangePassWindow";
 
 // Глобальная переменная для хранения роли текущего пользователя (1 - Админ)
 int g_CurrentRoleID = 0;
@@ -82,7 +83,7 @@ LRESULT CALLBACK    WizardWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    ProductWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    MaterialsWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    UsersWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    ChangePassWndProc(HWND, UINT, WPARAM, LPARAM); // АНОНС СМЕНЫ ПАРОЛЯ
+LRESULT CALLBACK    ChangePassWndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 std::wstring GenerateSHA256(const std::wstring& input)
@@ -434,34 +435,52 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
             HWND hCp = CreateWindowW(szChangePassClass, L"Смена пароля", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 300, 300, 300, 300, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_EXPORT) {
-            std::ofstream file("export.csv");
-            if (file.is_open()) {
-                // ПИШЕМ BOM ДЛЯ EXCEL (ЧТОБЫ РАБОТАЛ UTF-8 И РУССКИЕ БУКВЫ)
-                const char bom[] = { (char)0xEF, (char)0xBB, (char)0xBF };
-                file.write(bom, 3);
+            // ДИАЛОГОВОЕ ОКНО СОХРАНЕНИЯ ФАЙЛА
+            OPENFILENAMEW ofn;
+            wchar_t szFile[260] = { 0 };
 
-                int count = ListView_GetItemCount(hListView);
-                file << "ID;ProductName;BasePrice\n";
-                for (int i = 0; i < count; i++) {
-                    wchar_t b1[100], b2[100], b3[100];
-                    ListView_GetItemText(hListView, i, 0, b1, 100);
-                    ListView_GetItemText(hListView, i, 1, b2, 100);
-                    ListView_GetItemText(hListView, i, 2, b3, 100);
-                    wchar_t line[350];
-                    swprintf_s(line, 350, L"%ls;%ls;%ls\n", b1, b2, b3);
-                    int sz = WideCharToMultiByte(CP_UTF8, 0, line, -1, NULL, 0, NULL, NULL);
-                    if (sz > 1) {
-                        std::string utf8line(sz - 1, 0);
-                        WideCharToMultiByte(CP_UTF8, 0, line, -1, &utf8line[0], sz - 1, NULL, NULL);
-                        file << utf8line;
+            ZeroMemory(&ofn, sizeof(ofn));
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = hWnd;
+            ofn.lpstrFile = szFile;
+            ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
+            ofn.lpstrFilter = L"CSV Files (*.csv)\0*.csv\0All Files (*.*)\0*.*\0";
+            ofn.nFilterIndex = 1;
+            ofn.lpstrFileTitle = NULL;
+            ofn.nMaxFileTitle = 0;
+            ofn.lpstrInitialDir = NULL;
+            ofn.lpstrDefExt = L"csv"; // АВТОМАТИЧЕСКИ ПОДСТАВЛЯЕТ РАСШИРЕНИЕ
+            ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+
+            if (GetSaveFileNameW(&ofn) == TRUE) {
+                std::ofstream file(ofn.lpstrFile);
+                if (file.is_open()) {
+                    const char bom[] = { (char)0xEF, (char)0xBB, (char)0xBF };
+                    file.write(bom, 3);
+
+                    int count = ListView_GetItemCount(hListView);
+                    file << "ID;ProductName;BasePrice\n";
+                    for (int i = 0; i < count; i++) {
+                        wchar_t b1[100], b2[100], b3[100];
+                        ListView_GetItemText(hListView, i, 0, b1, 100);
+                        ListView_GetItemText(hListView, i, 1, b2, 100);
+                        ListView_GetItemText(hListView, i, 2, b3, 100);
+                        wchar_t line[350];
+                        swprintf_s(line, 350, L"%ls;%ls;%ls\n", b1, b2, b3);
+                        int sz = WideCharToMultiByte(CP_UTF8, 0, line, -1, NULL, 0, NULL, NULL);
+                        if (sz > 1) {
+                            std::string utf8line(sz - 1, 0);
+                            WideCharToMultiByte(CP_UTF8, 0, line, -1, &utf8line[0], sz - 1, NULL, NULL);
+                            file << utf8line;
+                        }
                     }
+                    file.close();
+                    SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Экспорт успешно завершен!");
+                    MessageBoxW(hWnd, L"Таблица успешно выгружена!", L"Экспорт успешен", MB_OK);
                 }
-                file.close();
-                SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Экспорт в export.csv успешно завершен!");
-                MessageBoxW(hWnd, L"Таблица выгружена в файл export.csv (рядом с программой)!", L"Экспорт успешен", MB_OK);
-            }
-            else {
-                MessageBoxW(hWnd, L"Не удалось создать файл!", L"Ошибка", MB_ICONERROR);
+                else {
+                    MessageBoxW(hWnd, L"Не удалось создать файл по выбранному пути!", L"Ошибка", MB_ICONERROR);
+                }
             }
         }
         else if (wmId == IDC_BTN_DELETE_PROD) {
