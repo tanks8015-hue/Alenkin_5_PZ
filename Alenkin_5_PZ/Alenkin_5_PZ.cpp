@@ -5,7 +5,8 @@
 #include <sql.h>      
 #include <sqlext.h>   
 #include <string>
-
+#include <commctrl.h> 
+#pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "advapi32.lib")
 
 #define MAX_LOADSTRING 100
@@ -81,7 +82,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
-
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_LISTVIEW_CLASSES;
+    InitCommonControlsEx(&icex);
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_ALENKIN5PZ, szWindowClass, MAX_LOADSTRING);
 
@@ -301,13 +305,92 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 // Обработчик окна Главного Дашборда
 LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    static HWND hListView;
+
     switch (message)
     {
+    case WM_CREATE:
+    {
+        hListView = CreateWindowExW(0, WC_LISTVIEW, L"",
+            WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER | LVS_SINGLESEL,
+            20, 60, 600, 400, hWnd, (HMENU)200, hInst, NULL);
+
+        ListView_SetExtendedListViewStyle(hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+
+        LVCOLUMNW lvc;
+        lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+
+        lvc.iSubItem = 0; lvc.cx = 50; lvc.pszText = (LPWSTR)L"ID";
+        ListView_InsertColumn(hListView, 0, &lvc);
+
+        lvc.iSubItem = 1; lvc.cx = 300; lvc.pszText = (LPWSTR)L"Название продукции";
+        ListView_InsertColumn(hListView, 1, &lvc);
+
+        lvc.iSubItem = 2; lvc.cx = 150; lvc.pszText = (LPWSTR)L"Базовая цена";
+        ListView_InsertColumn(hListView, 2, &lvc);
+
+        wchar_t connStr[256] = { 0 };
+        GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+
+        SQLHENV hEnv = NULL;
+        SQLHDBC hDbc = NULL;
+        SQLHSTMT hStmt = NULL;
+        SQLRETURN retCode;
+
+        SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv);
+        SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
+        SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+
+        retCode = SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT);
+
+        if (SQL_SUCCEEDED(retCode)) {
+            SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+
+            retCode = SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT ProductID, ProductName, BasePrice FROM Products", SQL_NTS);
+
+            if (SQL_SUCCEEDED(retCode)) {
+                SQLINTEGER prodId;
+                SQLWCHAR prodName[100];
+                SQLDECIMAL basePrice;
+                SQLWCHAR priceStr[50];
+                SQLLEN cbId = 0, cbName = 0, cbPrice = 0;
+
+                int rowCount = 0;
+                while (SQLFetch(hStmt) == SQL_SUCCESS) {
+                    SQLGetData(hStmt, 1, SQL_C_SLONG, &prodId, sizeof(prodId), &cbId);
+                    SQLGetData(hStmt, 2, SQL_C_WCHAR, prodName, sizeof(prodName), &cbName);
+                    SQLGetData(hStmt, 3, SQL_C_WCHAR, priceStr, sizeof(priceStr), &cbPrice);
+
+                    LVITEMW lvi = { 0 };
+                    lvi.mask = LVIF_TEXT;
+                    lvi.iItem = rowCount;
+                    lvi.iSubItem = 0;
+
+                    wchar_t idBuf[20];
+                    swprintf_s(idBuf, 20, L"%d", prodId);
+                    lvi.pszText = idBuf;
+
+                    ListView_InsertItem(hListView, &lvi);
+
+                    ListView_SetItemText(hListView, rowCount, 1, prodName);
+
+                    ListView_SetItemText(hListView, rowCount, 2, priceStr);
+
+                    rowCount++;
+                }
+            }
+            SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+            SQLDisconnect(hDbc);
+        }
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+    }
+    break;
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-        TextOutW(hdc, 50, 50, L"Добро пожаловать в систему управления производством!", 52);
+        TextOutW(hdc, 20, 20, L"Справочник готовой продукции (Данные из SQL Server):", 52);
         EndPaint(hWnd, &ps);
     }
     break;
