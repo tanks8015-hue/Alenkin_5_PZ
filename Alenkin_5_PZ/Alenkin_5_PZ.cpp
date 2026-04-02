@@ -129,17 +129,25 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //
 //
 // Функция для генерации SHA-256 хэша средствами Windows API
+// Исправленная функция: сначала конвертируем в UTF-8, потом делаем SHA-256
 std::wstring GenerateSHA256(const std::wstring& input)
 {
+    // 1. Конвертируем wstring (UTF-16) в string (UTF-8)
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &input[0], (int)input.size(), NULL, 0, NULL, NULL);
+    std::string utf8_input(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &input[0], (int)input.size(), &utf8_input[0], size_needed, NULL, NULL);
+
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
     std::wstring hashStr = L"";
 
+    // 2. Хэшируем
     if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
     {
         if (CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
         {
-            if (CryptHashData(hHash, (const BYTE*)input.c_str(), input.length() * sizeof(wchar_t), 0))
+            // Скармливаем нормальную UTF-8 строку!
+            if (CryptHashData(hHash, (const BYTE*)utf8_input.c_str(), utf8_input.length(), 0))
             {
                 DWORD hashLen = 0;
                 DWORD hashLenSize = sizeof(DWORD);
