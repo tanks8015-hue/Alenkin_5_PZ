@@ -225,7 +225,65 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 L"\nХэш пароля: " + passHash +
                 L"\nСтрока БД: " + std::wstring(connStr);
 
-            MessageBoxW(hWnd, debugMsg.c_str(), L"Отладка", MB_OK);
+            // 3. Подключение к БД через ODBC и проверка пользователя
+            SQLHENV hEnv = NULL;
+            SQLHDBC hDbc = NULL;
+            SQLHSTMT hStmt = NULL;
+            SQLRETURN retCode;
+
+            // Инициализируем окружение ODBC
+            SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv);
+            SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
+            SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+
+            // Пытаемся подключиться по строке из config.ini
+            retCode = SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT);
+
+            if (SQL_SUCCEEDED(retCode)) {
+                SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+
+                // Строго прописываем нужные столбцы, никакого SELECT * 
+                wchar_t query[512];
+                swprintf_s(query, 512, L"SELECT UserID, RoleID FROM Users WHERE Username = '%s' AND PasswordHash = '%s'", username, passHash.c_str());
+
+                // Выполняем запрос
+                retCode = SQLExecDirectW(hStmt, query, SQL_NTS);
+
+                if (SQL_SUCCEEDED(retCode)) {
+                    // Читаем результат (SQLFetch вернет SQL_SUCCESS, если строка найдена)
+                    if (SQLFetch(hStmt) == SQL_SUCCESS) {
+                        SQLINTEGER userId = 0, roleId = 0;
+                        SQLLEN cbUserId = 0, cbRoleId = 0;
+
+                        // Вытаскиваем данные из колонок
+                        SQLGetData(hStmt, 1, SQL_C_SLONG, &userId, sizeof(userId), &cbUserId);
+                        SQLGetData(hStmt, 2, SQL_C_SLONG, &roleId, sizeof(roleId), &cbRoleId);
+
+                        MessageBoxW(hWnd, L"Авторизация успешна! Доступ разрешен.", L"Успех", MB_OK);
+
+                        // Заготовка на будущее:
+                        // 1. Сделать запись в SystemLogs (ID сессии и IP) [cite: 20]
+                        // 2. Скрыть это окно и открыть форму "Главный дашборд" [cite: 7]
+                    }
+                    else {
+                        MessageBoxW(hWnd, L"Неверный логин или пароль!", L"Отказ в доступе", MB_ICONWARNING);
+                    }
+                }
+                else {
+                    MessageBoxW(hWnd, L"Ошибка выполнения SQL-запроса.", L"Ошибка БД", MB_ICONERROR);
+                }
+
+                // Освобождаем память запроса и отключаемся
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+                SQLDisconnect(hDbc);
+            }
+            else {
+                MessageBoxW(hWnd, L"Не удалось подключиться к серверу БД. Проверь config.ini", L"Ошибка сети", MB_ICONERROR);
+            }
+
+            // Убиваем дескрипторы
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+            SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         }
 
         // Разобрать стандартный выбор в меню:
