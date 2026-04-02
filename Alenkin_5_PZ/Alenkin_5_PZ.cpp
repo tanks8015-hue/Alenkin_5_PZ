@@ -1216,6 +1216,7 @@ LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
             SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         }
         break;
+
     }
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
