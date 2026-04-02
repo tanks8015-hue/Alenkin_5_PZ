@@ -4,7 +4,8 @@
 #include <sql.h>      
 #include <sqlext.h>   
 #include <string>
-#include <commctrl.h> // Для таблиц и продвинутых контролов
+#include <commctrl.h> 
+#include <thread> // Добавил для асинхронности
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -15,21 +16,26 @@
 #define IDC_USERNAME_EDIT 101
 #define IDC_PASSWORD_EDIT 102
 #define IDC_LOGIN_BUTTON 103
-#define IDC_BTN_OPEN_EDITOR 104 // Кнопка открытия 3-й формы
-#define IDC_COMBO_COUNTRY 105   // Выпадающий список "Страна"
-#define IDC_COMBO_CITY 106      // Выпадающий список "Город"
+#define IDC_BTN_OPEN_EDITOR 104 
+#define IDC_COMBO_COUNTRY 105   
+#define IDC_COMBO_CITY 106      
+#define IDC_BTN_OPEN_ANALYTICS 107 // ID кнопки для 4-й формы
+#define IDC_BTN_GENERATE_REPORT 108 // ID кнопки внутри 4-й формы
+#define IDC_LBL_REPORT_RESULT 109 // ID текста результата
 
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 WCHAR szDashboardClass[] = L"DashboardWindow";
-WCHAR szEditorClass[] = L"EditorWindow"; // Класс для Формы 3
+WCHAR szEditorClass[] = L"EditorWindow";
+WCHAR szAnalyticsClass[] = L"AnalyticsWindow"; // Класс для Формы 4
 
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    DashboardWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы 3
+LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    AnalyticsWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы 4
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 std::wstring GenerateSHA256(const std::wstring& input)
@@ -98,7 +104,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexDash.lpszClassName = szDashboardClass;
     RegisterClassExW(&wcexDash);
 
-    // Регистрация Формы 3 (Карточка редактирования)
     WNDCLASSEXW wcexEd = { 0 };
     wcexEd.cbSize = sizeof(WNDCLASSEX);
     wcexEd.style = CS_HREDRAW | CS_VREDRAW;
@@ -108,6 +113,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexEd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wcexEd.lpszClassName = szEditorClass;
     RegisterClassExW(&wcexEd);
+
+    // Регистрация Формы 4 (Панель аналитики)
+    WNDCLASSEXW wcexAn = { 0 };
+    wcexAn.cbSize = sizeof(WNDCLASSEX);
+    wcexAn.style = CS_HREDRAW | CS_VREDRAW;
+    wcexAn.lpfnWndProc = AnalyticsWndProc;
+    wcexAn.hInstance = hInstance;
+    wcexAn.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexAn.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcexAn.lpszClassName = szAnalyticsClass;
+    RegisterClassExW(&wcexAn);
 
     if (!InitInstance(hInstance, nCmdShow)) return FALSE;
 
@@ -188,7 +204,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                 if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
                     if (SQLFetch(hStmt) == SQL_SUCCESS) {
-                        SQLCloseCursor(hStmt); // Закрываем курсор!
+                        SQLCloseCursor(hStmt);
 
                         HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 800, 600, nullptr, nullptr, hInst, nullptr);
                         if (hDash) {
@@ -215,14 +231,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 // ---------------- ФОРМА 2: ГЛАВНЫЙ ДАШБОРД ----------------
 LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static HWND hListView, hBtnEditor;
+    static HWND hListView, hBtnEditor, hBtnAnalytics;
     switch (message)
     {
     case WM_CREATE:
     {
-        // Кнопка для вызова Формы 3
         hBtnEditor = CreateWindowW(L"BUTTON", L"Добавить поставщика (Редактор)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             20, 480, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_EDITOR, hInst, NULL);
+
+        // Добавил кнопку для 4-й формы
+        hBtnAnalytics = CreateWindowW(L"BUTTON", L"Панель аналитики", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            300, 480, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_ANALYTICS, hInst, NULL);
 
         hListView = CreateWindowExW(0, WC_LISTVIEW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER | LVS_SINGLESEL,
             20, 60, 600, 400, hWnd, NULL, hInst, NULL);
@@ -265,22 +284,11 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
     {
         int wmId = LOWORD(wParam);
         if (wmId == IDC_BTN_OPEN_EDITOR) {
-
-            // Жестко задаем координаты (150, 150) и отвязываем от Дашборда (ставим nullptr вместо hWnd)
-            HWND hEditor = CreateWindowW(szEditorClass, L"Карточка поставщика",
-                WS_OVERLAPPEDWINDOW,
-                150, 150, 450, 400,
-                nullptr, nullptr, hInst, nullptr);
-
-            if (hEditor) {
-                // Железный пинок системе, чтобы она показала окно
-                ShowWindow(hEditor, SW_SHOWNORMAL);
-                UpdateWindow(hEditor);
-                SetForegroundWindow(hEditor); // Тащим поверх всех окон насильно
-            }
-            else {
-                MessageBoxW(hWnd, L"Ошибка создания окна", L"Ошибка", MB_ICONERROR);
-            }
+            HWND hEditor = CreateWindowW(szEditorClass, L"Карточка поставщика", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 150, 150, 450, 400, nullptr, nullptr, hInst, nullptr);
+        }
+        else if (wmId == IDC_BTN_OPEN_ANALYTICS) {
+            // Открываем форму 4
+            HWND hAnalytics = CreateWindowW(szAnalyticsClass, L"Панель аналитики", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 200, 200, 500, 350, nullptr, nullptr, hInst, nullptr);
         }
         break;
     }
@@ -301,7 +309,6 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
 LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     static HWND hComboCountry, hComboCity;
-
     switch (message)
     {
     case WM_CREATE:
@@ -312,7 +319,6 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
         CreateWindowW(L"STATIC", L"Город (автозагрузка):", WS_VISIBLE | WS_CHILD, 20, 80, 200, 20, hWnd, NULL, hInst, NULL);
         hComboCity = CreateWindowW(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VISIBLE | WS_CHILD | WS_VSCROLL, 20, 100, 200, 150, hWnd, (HMENU)IDC_COMBO_CITY, hInst, NULL);
 
-        // Загружаем список стран из БД при открытии окна
         wchar_t connStr[256] = { 0 };
         GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
         SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
@@ -324,10 +330,7 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
                 while (SQLFetch(hStmt) == SQL_SUCCESS) {
                     SQLGetData(hStmt, 1, SQL_C_SLONG, &id, sizeof(id), &cbId);
                     SQLGetData(hStmt, 2, SQL_C_WCHAR, name, sizeof(name), &cbName);
-
-                    // Добавляем текст в комбобокс
                     int index = SendMessageW(hComboCountry, CB_ADDSTRING, 0, (LPARAM)name);
-                    // Незаметно привязываем ID страны к этой строке
                     SendMessageW(hComboCountry, CB_SETITEMDATA, index, id);
                 }
             }
@@ -337,19 +340,13 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
         break;
     }
     case WM_COMMAND:
-        // ЕСЛИ ПОЛЬЗОВАТЕЛЬ ВЫБРАЛ СТРАНУ
         if (HIWORD(wParam) == CBN_SELCHANGE && LOWORD(wParam) == IDC_COMBO_COUNTRY)
         {
-            // Получаем выбранный индекс
             int idx = SendMessageW(hComboCountry, CB_GETCURSEL, 0, 0);
             if (idx != CB_ERR) {
-                // Вытаскиваем спрятанный ID страны
                 int countryId = SendMessageW(hComboCountry, CB_GETITEMDATA, idx, 0);
-
-                // Очищаем второй список
                 SendMessageW(hComboCity, CB_RESETCONTENT, 0, 0);
 
-                // Подключаемся к БД и ищем города ТОЛЬКО для этой страны (СВЯЗАННЫЙ СПИСОК!)
                 wchar_t connStr[256] = { 0 };
                 GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
                 SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
@@ -357,16 +354,13 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 
                 if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
                     SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
-
                     wchar_t query[256];
                     swprintf_s(query, 256, L"SELECT CityID, CityName FROM Cities WHERE CountryID = %d", countryId);
-
                     if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
                         SQLINTEGER id; SQLWCHAR name[100]; SQLLEN cbId, cbName;
                         while (SQLFetch(hStmt) == SQL_SUCCESS) {
                             SQLGetData(hStmt, 1, SQL_C_SLONG, &id, sizeof(id), &cbId);
                             SQLGetData(hStmt, 2, SQL_C_WCHAR, name, sizeof(name), &cbName);
-
                             int cIdx = SendMessageW(hComboCity, CB_ADDSTRING, 0, (LPARAM)name);
                             SendMessageW(hComboCity, CB_SETITEMDATA, cIdx, id);
                         }
@@ -380,4 +374,66 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
+}
+
+// ---------------- ФОРМА 4: АНАЛИТИКА (АСИНХРОННОСТЬ) ----------------
+LRESULT CALLBACK AnalyticsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_CREATE:
+        CreateWindowW(L"BUTTON", L"Рассчитать стоимость номенклатуры", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 50, 50, 300, 40, hWnd, (HMENU)IDC_BTN_GENERATE_REPORT, hInst, NULL);
+        CreateWindowW(L"STATIC", L"Статус: Ожидание...", WS_VISIBLE | WS_CHILD, 50, 110, 400, 100, hWnd, (HMENU)IDC_LBL_REPORT_RESULT, hInst, NULL);
+        break;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_BTN_GENERATE_REPORT) {
+            SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, L"Статус: Выполняю тяжелый запрос в фоне...");
+
+            // Запускаем асинхронный поток (ТЗ требует std::thread)
+            std::thread([hWnd]() {
+                Sleep(2000); // Имитируем тяжелый расчет
+
+                wchar_t connStr[256] = { 0 };
+                GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+                SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+                SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+
+                std::wstring result = L"Статус: Ошибка запроса";
+                if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                    SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                    // Строго без SELECT * по ТЗ
+                    if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT SUM(BasePrice) FROM Products", SQL_NTS))) {
+                        if (SQLFetch(hStmt) == SQL_SUCCESS) {
+                            SQLWCHAR sum[100]; SQLLEN cb;
+                            SQLGetData(hStmt, 1, SQL_C_WCHAR, sum, sizeof(sum), &cb);
+                            result = L"ОТЧЕТ ГОТОВ!\nОбщая цена товаров: " + std::wstring(sum) + L" руб.";
+                        }
+                    }
+                    SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+                }
+                SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+
+                // Обновляем текст в UI из потока
+                SetDlgItemTextW(hWnd, IDC_LBL_REPORT_RESULT, result.c_str());
+                }).detach();
+        }
+        break;
+    default: return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    UNREFERENCED_PARAMETER(lParam);
+    switch (message)
+    {
+    case WM_INITDIALOG: return (INT_PTR)TRUE;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
+            EndDialog(hDlg, LOWORD(wParam)); return (INT_PTR)TRUE;
+        }
+        break;
+    }
+    return (INT_PTR)FALSE;
 }
