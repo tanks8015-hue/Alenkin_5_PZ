@@ -1,4 +1,5 @@
-ID;ProductName;BasePrice
+﻿ID;ProductName;BasePrice
 1;Двигатель А-100;150000.00
 2;Шестерня вала;2500.50
 4;BMW F10;2100000.00
+5;Тормозная колодка BMW;20000.00
