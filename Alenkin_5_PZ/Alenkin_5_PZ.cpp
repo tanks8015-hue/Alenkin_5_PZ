@@ -4,8 +4,8 @@
 #include <sql.h>      
 #include <sqlext.h>   
 #include <string>
-#include <commctrl.h> // Для таблиц и продвинутых контролов
-#include <thread> // Добавил для асинхронности
+#include <commctrl.h> 
+#include <thread> 
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -16,18 +16,17 @@
 #define IDC_USERNAME_EDIT 101
 #define IDC_PASSWORD_EDIT 102
 #define IDC_LOGIN_BUTTON 103
-#define IDC_BTN_OPEN_EDITOR 104 // Кнопка открытия 3-й формы
-#define IDC_COMBO_COUNTRY 105   // Выпадающий список "Страна"
-#define IDC_COMBO_CITY 106      // Выпадающий список "Город"
-#define IDC_BTN_OPEN_ANALYTICS 107 // ID кнопки для 4-й формы
-#define IDC_BTN_GENERATE_REPORT 108 // ID кнопки внутри 4-й формы
-#define IDC_LBL_REPORT_RESULT 109 // ID текста результата
+#define IDC_BTN_OPEN_EDITOR 104 
+#define IDC_COMBO_COUNTRY 105   
+#define IDC_COMBO_CITY 106      
+#define IDC_BTN_OPEN_ANALYTICS 107 
+#define IDC_BTN_GENERATE_REPORT 108 
+#define IDC_LBL_REPORT_RESULT 109 
 #define IDC_EDIT_FILTER 110
 #define IDC_BTN_FILTER 111
 #define IDC_BTN_OPEN_WIZARD 112
 #define IDC_BTN_WIZ_NEXT 113
 #define IDC_BTN_WIZ_CANCEL 114
-// НОВЫЕ ID:
 #define IDC_EDIT_SUPPLIER_NAME 115
 #define IDC_BTN_ADD_SUPPLIER 116
 #define IDC_BTN_ADD_PRODUCT 117
@@ -41,19 +40,24 @@ HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 WCHAR szDashboardClass[] = L"DashboardWindow";
-WCHAR szEditorClass[] = L"EditorWindow"; // Класс для Формы 3
-WCHAR szAnalyticsClass[] = L"AnalyticsWindow"; // Класс для Формы 4
-WCHAR szWizardClass[] = L"WizardWindow"; // Класс для Формы Транзакций
-WCHAR szProductClass[] = L"ProductWindow"; // Класс для Формы добавления продукта
+WCHAR szEditorClass[] = L"EditorWindow";
+WCHAR szAnalyticsClass[] = L"AnalyticsWindow";
+WCHAR szWizardClass[] = L"WizardWindow";
+WCHAR szProductClass[] = L"ProductWindow";
+// НОВЫЕ КЛАССЫ ДЛЯ МАТЕРИАЛОВ И ЮЗЕРОВ
+WCHAR szMaterialsClass[] = L"MaterialsWindow";
+WCHAR szUsersClass[] = L"UsersWindow";
 
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    DashboardWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы 3
-LRESULT CALLBACK    AnalyticsWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы 4
-LRESULT CALLBACK    WizardWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Транзакционного Мастера
-LRESULT CALLBACK    ProductWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Формы Продукции
+LRESULT CALLBACK    EditorWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    AnalyticsWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    WizardWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    ProductWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    MaterialsWndProc(HWND, UINT, WPARAM, LPARAM); // Анонс Материалов
+LRESULT CALLBACK    UsersWndProc(HWND, UINT, WPARAM, LPARAM);     // Анонс Юзеров
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 std::wstring GenerateSHA256(const std::wstring& input)
@@ -132,7 +136,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexEd.lpszClassName = szEditorClass;
     RegisterClassExW(&wcexEd);
 
-    // Регистрация Формы 4 (Панель аналитики)
     WNDCLASSEXW wcexAn = { 0 };
     wcexAn.cbSize = sizeof(WNDCLASSEX);
     wcexAn.style = CS_HREDRAW | CS_VREDRAW;
@@ -143,7 +146,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexAn.lpszClassName = szAnalyticsClass;
     RegisterClassExW(&wcexAn);
 
-    // Регистрация Мастера Транзакций
     WNDCLASSEXW wcexWiz = { 0 };
     wcexWiz.cbSize = sizeof(WNDCLASSEX);
     wcexWiz.style = CS_HREDRAW | CS_VREDRAW;
@@ -154,7 +156,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexWiz.lpszClassName = szWizardClass;
     RegisterClassExW(&wcexWiz);
 
-    // Регистрация Формы добавления продукции
     WNDCLASSEXW wcexProd = { 0 };
     wcexProd.cbSize = sizeof(WNDCLASSEX);
     wcexProd.style = CS_HREDRAW | CS_VREDRAW;
@@ -164,6 +165,27 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexProd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wcexProd.lpszClassName = szProductClass;
     RegisterClassExW(&wcexProd);
+
+    // РЕГИСТРАЦИЯ НОВЫХ ФОРМ (МАТЕРИАЛЫ И ЮЗЕРЫ)
+    WNDCLASSEXW wcexMat = { 0 };
+    wcexMat.cbSize = sizeof(WNDCLASSEX);
+    wcexMat.style = CS_HREDRAW | CS_VREDRAW;
+    wcexMat.lpfnWndProc = MaterialsWndProc;
+    wcexMat.hInstance = hInstance;
+    wcexMat.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexMat.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcexMat.lpszClassName = szMaterialsClass;
+    RegisterClassExW(&wcexMat);
+
+    WNDCLASSEXW wcexUsr = { 0 };
+    wcexUsr.cbSize = sizeof(WNDCLASSEX);
+    wcexUsr.style = CS_HREDRAW | CS_VREDRAW;
+    wcexUsr.lpfnWndProc = UsersWndProc;
+    wcexUsr.hInstance = hInstance;
+    wcexUsr.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexUsr.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcexUsr.lpszClassName = szUsersClass;
+    RegisterClassExW(&wcexUsr);
 
     if (!InitInstance(hInstance, nCmdShow)) return FALSE;
 
@@ -246,7 +268,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     if (SQLFetch(hStmt) == SQL_SUCCESS) {
                         SQLCloseCursor(hStmt);
 
-                        // Увеличили высоту окна дашборда, чтобы влезли новые кнопки
                         HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 800, 700, nullptr, nullptr, hInst, nullptr);
                         if (hDash) {
                             ShowWindow(hDash, SW_SHOW);
@@ -277,7 +298,6 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
     {
     case WM_CREATE:
     {
-        // ВИЗУАЛЬНЫЙ КОНСТРУКТОР ФИЛЬТРОВ
         CreateWindowW(L"STATIC", L"Фильтр (Цена >):", WS_VISIBLE | WS_CHILD, 330, 20, 120, 20, hWnd, NULL, hInst, NULL);
         hEditFilter = CreateWindowW(L"EDIT", L"0", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER, 450, 20, 60, 20, hWnd, (HMENU)IDC_EDIT_FILTER, hInst, NULL);
         CreateWindowW(L"BUTTON", L"Поиск", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 520, 18, 60, 24, hWnd, (HMENU)IDC_BTN_FILTER, hInst, NULL);
@@ -288,11 +308,9 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         hBtnAnalytics = CreateWindowW(L"BUTTON", L"Панель аналитики", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             300, 480, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_ANALYTICS, hInst, NULL);
 
-        // КНОПКА ТРАНЗАКЦИОННОГО МАСТЕРА (Уменьшили ширину, чтобы влезла новая кнопка)
         CreateWindowW(L"BUTTON", L"Мастер заказов (Транзакции)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             20, 530, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_WIZARD, hInst, NULL);
 
-        // НОВЫЕ КНОПКИ
         CreateWindowW(L"BUTTON", L"Добавить продукцию", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             300, 530, 250, 40, hWnd, (HMENU)IDC_BTN_ADD_PRODUCT, hInst, NULL);
 
@@ -349,13 +367,17 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
             HWND hAnalytics = CreateWindowW(szAnalyticsClass, L"Панель аналитики", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 200, 200, 500, 350, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_OPEN_WIZARD) {
-            HWND hWiz = CreateWindowW(szWizardClass, L"Транзакционный мастер (Оформление)", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 250, 250, 400, 200, nullptr, nullptr, hInst, nullptr);
+            HWND hWiz = CreateWindowW(szWizardClass, L"Транзакционный мастер", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 250, 250, 400, 200, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_ADD_PRODUCT) {
             HWND hProd = CreateWindowW(szProductClass, L"Добавление продукции", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 300, 300, 300, 250, nullptr, nullptr, hInst, nullptr);
         }
-        else if (wmId == IDC_BTN_MANAGE_MATERIALS || wmId == IDC_BTN_MANAGE_USERS) {
-            MessageBoxW(hWnd, L"Этот раздел в разработке.", L"Инфо", MB_OK);
+        // ВМЕСТО ЗАГЛУШЕК ТЕПЕРЬ ОТКРЫВАЮТСЯ РЕАЛЬНЫЕ ОКНА
+        else if (wmId == IDC_BTN_MANAGE_MATERIALS) {
+            HWND hMat = CreateWindowW(szMaterialsClass, L"Справочник материалов", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 350, 350, 500, 400, nullptr, nullptr, hInst, nullptr);
+        }
+        else if (wmId == IDC_BTN_MANAGE_USERS) {
+            HWND hUsr = CreateWindowW(szUsersClass, L"Пользователи", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 400, 400, 500, 400, nullptr, nullptr, hInst, nullptr);
         }
         else if (wmId == IDC_BTN_FILTER) {
             wchar_t filterVal[50];
@@ -411,7 +433,6 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
 // ---------------- ФОРМА 3: КАРТОЧКА И СВЯЗАННЫЕ СПИСКИ ----------------
 LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    // ДОБАВИЛ ПЕРЕМЕННУЮ ДЛЯ ИМЕНИ ПОСТАВЩИКА
     static HWND hComboCountry, hComboCity, hEditSupName;
     switch (message)
     {
@@ -423,7 +444,6 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
         CreateWindowW(L"STATIC", L"Город (автозагрузка):", WS_VISIBLE | WS_CHILD, 20, 80, 200, 20, hWnd, NULL, hInst, NULL);
         hComboCity = CreateWindowW(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VISIBLE | WS_CHILD | WS_VSCROLL, 20, 100, 200, 150, hWnd, (HMENU)IDC_COMBO_CITY, hInst, NULL);
 
-        // НОВЫЕ ПОЛЯ ДЛЯ ДОБАВЛЕНИЯ ПОСТАВЩИКА
         CreateWindowW(L"STATIC", L"Название поставщика:", WS_VISIBLE | WS_CHILD, 20, 140, 200, 20, hWnd, NULL, hInst, NULL);
         hEditSupName = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 20, 160, 200, 20, hWnd, (HMENU)IDC_EDIT_SUPPLIER_NAME, hInst, NULL);
         CreateWindowW(L"BUTTON", L"Сохранить в БД", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 20, 190, 200, 30, hWnd, (HMENU)IDC_BTN_ADD_SUPPLIER, hInst, NULL);
@@ -479,7 +499,6 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
                 SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
             }
         }
-        // НОВАЯ ЛОГИКА ДОБАВЛЕНИЯ ПОСТАВЩИКА
         else if (LOWORD(wParam) == IDC_BTN_ADD_SUPPLIER)
         {
             wchar_t supName[100];
@@ -500,7 +519,7 @@ LRESULT CALLBACK EditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
                     wchar_t query[512];
                     swprintf_s(query, 512, L"INSERT INTO Suppliers (SupplierName, CityID) VALUES ('%ls', %d)", supName, cityId);
                     if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
-                        MessageBoxW(hWnd, L"Поставщик успешно добавден в БД!", L"Успех", MB_OK);
+                        MessageBoxW(hWnd, L"Поставщик успешно добавлен в БД!", L"Успех", MB_OK);
                         SetWindowTextW(hEditSupName, L"");
                     }
                     else {
@@ -641,7 +660,6 @@ LRESULT CALLBACK ProductWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
         hEditProdName = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 20, 40, 200, 25, hWnd, (HMENU)IDC_EDIT_PROD_NAME, hInst, NULL);
 
         CreateWindowW(L"STATIC", L"Базовая цена:", WS_VISIBLE | WS_CHILD, 20, 80, 200, 20, hWnd, NULL, hInst, NULL);
-        // Не ставим ES_NUMBER, чтобы можно было вводить десятичные точки
         hEditProdPrice = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 20, 100, 200, 25, hWnd, (HMENU)IDC_EDIT_PROD_PRICE, hInst, NULL);
 
         CreateWindowW(L"BUTTON", L"Добавить в БД", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 20, 150, 200, 35, hWnd, (HMENU)IDC_BTN_SAVE_PRODUCT, hInst, NULL);
@@ -679,6 +697,108 @@ LRESULT CALLBACK ProductWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
             SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         }
         break;
+    default: return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+// ---------------- ФОРМА 7: СПРАВОЧНИК МАТЕРИАЛОВ (СВЯЗЬ С БД) ----------------
+LRESULT CALLBACK MaterialsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static HWND hListViewMat;
+    switch (message)
+    {
+    case WM_CREATE:
+    {
+        hListViewMat = CreateWindowExW(0, WC_LISTVIEW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER | LVS_SINGLESEL,
+            20, 20, 440, 300, hWnd, NULL, hInst, NULL);
+        ListView_SetExtendedListViewStyle(hListViewMat, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+
+        LVCOLUMNW lvc; lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+        lvc.iSubItem = 0; lvc.cx = 50; lvc.pszText = (LPWSTR)L"ID"; ListView_InsertColumn(hListViewMat, 0, &lvc);
+        lvc.iSubItem = 1; lvc.cx = 350; lvc.pszText = (LPWSTR)L"Название материала"; ListView_InsertColumn(hListViewMat, 1, &lvc);
+
+        wchar_t connStr[256] = { 0 };
+        GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+        SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+        SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+        if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+            SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+            // Тянем данные из таблицы Materials
+            if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT MaterialID, MaterialName FROM Materials", SQL_NTS))) {
+                SQLINTEGER matId; SQLWCHAR matName[100]; SQLLEN cbId, cbName;
+                int rowCount = 0;
+                while (SQLFetch(hStmt) == SQL_SUCCESS) {
+                    SQLGetData(hStmt, 1, SQL_C_SLONG, &matId, sizeof(matId), &cbId);
+                    SQLGetData(hStmt, 2, SQL_C_WCHAR, matName, sizeof(matName), &cbName);
+
+                    LVITEMW lvi = { 0 }; lvi.mask = LVIF_TEXT; lvi.iItem = rowCount; lvi.iSubItem = 0;
+                    wchar_t idBuf[20]; swprintf_s(idBuf, 20, L"%d", matId);
+                    lvi.pszText = idBuf;
+                    ListView_InsertItem(hListViewMat, &lvi);
+                    ListView_SetItemText(hListViewMat, rowCount, 1, matName);
+                    rowCount++;
+                }
+            }
+            SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+        }
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        break;
+    }
+    default: return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+// ---------------- ФОРМА 8: ПОЛЬЗОВАТЕЛИ (СВЯЗЬ С БД) ----------------
+LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static HWND hListViewUsr;
+    switch (message)
+    {
+    case WM_CREATE:
+    {
+        hListViewUsr = CreateWindowExW(0, WC_LISTVIEW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER | LVS_SINGLESEL,
+            20, 20, 440, 300, hWnd, NULL, hInst, NULL);
+        ListView_SetExtendedListViewStyle(hListViewUsr, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+
+        LVCOLUMNW lvc; lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+        lvc.iSubItem = 0; lvc.cx = 50; lvc.pszText = (LPWSTR)L"ID"; ListView_InsertColumn(hListViewUsr, 0, &lvc);
+        lvc.iSubItem = 1; lvc.cx = 200; lvc.pszText = (LPWSTR)L"Логин"; ListView_InsertColumn(hListViewUsr, 1, &lvc);
+        lvc.iSubItem = 2; lvc.cx = 150; lvc.pszText = (LPWSTR)L"Роль (ID)"; ListView_InsertColumn(hListViewUsr, 2, &lvc);
+
+        wchar_t connStr[256] = { 0 };
+        GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+        SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+        SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+        if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+            SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+            // Тянем данные из таблицы Users
+            if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, (SQLWCHAR*)L"SELECT UserID, Username, RoleID FROM Users", SQL_NTS))) {
+                SQLINTEGER uId, rId; SQLWCHAR uName[100]; SQLLEN cbId, cbName, cbRole;
+                int rowCount = 0;
+                while (SQLFetch(hStmt) == SQL_SUCCESS) {
+                    SQLGetData(hStmt, 1, SQL_C_SLONG, &uId, sizeof(uId), &cbId);
+                    SQLGetData(hStmt, 2, SQL_C_WCHAR, uName, sizeof(uName), &cbName);
+                    SQLGetData(hStmt, 3, SQL_C_SLONG, &rId, sizeof(rId), &cbRole);
+
+                    LVITEMW lvi = { 0 }; lvi.mask = LVIF_TEXT; lvi.iItem = rowCount; lvi.iSubItem = 0;
+                    wchar_t idBuf[20]; swprintf_s(idBuf, 20, L"%d", uId);
+                    lvi.pszText = idBuf;
+                    ListView_InsertItem(hListViewUsr, &lvi);
+                    ListView_SetItemText(hListViewUsr, rowCount, 1, uName);
+
+                    wchar_t roleBuf[20]; swprintf_s(roleBuf, 20, L"%d", rId);
+                    ListView_SetItemText(hListViewUsr, rowCount, 2, roleBuf);
+
+                    rowCount++;
+                }
+            }
+            SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+        }
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        break;
+    }
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
