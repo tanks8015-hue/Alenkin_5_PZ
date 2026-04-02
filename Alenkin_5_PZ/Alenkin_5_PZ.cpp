@@ -6,6 +6,7 @@
 #include <string>
 #include <commctrl.h> 
 #include <thread> 
+#include <fstream> // ДОБАВЛЕНО ДЛЯ ЭКСПОРТА CSV
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -43,7 +44,18 @@
 #define IDC_EDIT_USR_PASS 126
 #define IDC_EDIT_USR_ROLE 127
 #define IDC_BTN_ADD_USR 128
-#define IDC_EDIT_MAT_PRICE 129 // ID для цены материала
+#define IDC_EDIT_MAT_PRICE 129
+
+// УБЕР-ФИЧИ (УДАЛЕНИЕ, ЭКСПОРТ, ПОИСК, СМЕНА ПАРОЛЯ, СТАТУС БАР)
+#define IDC_BTN_DELETE_PROD 130
+#define IDC_BTN_EXPORT 131
+#define IDC_EDIT_SEARCH_NAME 132
+#define IDC_BTN_CHANGE_PASS 133
+#define IDC_EDIT_CP_LOGIN 134
+#define IDC_EDIT_CP_OLD 135
+#define IDC_EDIT_CP_NEW 136
+#define IDC_BTN_CP_SAVE 137
+#define IDC_STATUSBAR 138
 
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
@@ -55,6 +67,7 @@ WCHAR szWizardClass[] = L"WizardWindow";
 WCHAR szProductClass[] = L"ProductWindow";
 WCHAR szMaterialsClass[] = L"MaterialsWindow";
 WCHAR szUsersClass[] = L"UsersWindow";
+WCHAR szChangePassClass[] = L"ChangePassWindow"; // ДОБАВЛЕН КЛАСС СМЕНЫ ПАРОЛЯ
 
 // Глобальная переменная для хранения роли текущего пользователя (1 - Админ)
 int g_CurrentRoleID = 0;
@@ -69,6 +82,7 @@ LRESULT CALLBACK    WizardWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    ProductWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    MaterialsWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    UsersWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    ChangePassWndProc(HWND, UINT, WPARAM, LPARAM); // АНОНС СМЕНЫ ПАРОЛЯ
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 std::wstring GenerateSHA256(const std::wstring& input)
@@ -118,7 +132,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 {
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_LISTVIEW_CLASSES | ICC_STANDARD_CLASSES;
+    // ДОБАВИЛ ICC_BAR_CLASSES ДЛЯ СТАТУС-БАРА
+    icex.dwICC = ICC_LISTVIEW_CLASSES | ICC_STANDARD_CLASSES | ICC_BAR_CLASSES;
     InitCommonControlsEx(&icex);
 
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -196,6 +211,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     wcexUsr.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wcexUsr.lpszClassName = szUsersClass;
     RegisterClassExW(&wcexUsr);
+
+    // РЕГИСТРАЦИЯ ФОРМЫ СМЕНЫ ПАРОЛЯ
+    WNDCLASSEXW wcexCP = { 0 };
+    wcexCP.cbSize = sizeof(WNDCLASSEX);
+    wcexCP.style = CS_HREDRAW | CS_VREDRAW;
+    wcexCP.lpfnWndProc = ChangePassWndProc;
+    wcexCP.hInstance = hInstance;
+    wcexCP.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexCP.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcexCP.lpszClassName = szChangePassClass;
+    RegisterClassExW(&wcexCP);
 
     if (!InitInstance(hInstance, nCmdShow)) return FALSE;
 
@@ -283,7 +309,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                         SQLCloseCursor(hStmt);
 
-                        HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 800, 700, nullptr, nullptr, hInst, nullptr);
+                        // Сделали дашборд еще шире (900), чтобы влезли новые кнопки
+                        HWND hDash = CreateWindowW(szDashboardClass, L"Главный дашборд", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 900, 700, nullptr, nullptr, hInst, nullptr);
                         if (hDash) {
                             ShowWindow(hDash, SW_SHOW);
                             UpdateWindow(hDash);
@@ -308,15 +335,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 // ---------------- ФОРМА 2: ГЛАВНЫЙ ДАШБОРД ----------------
 LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    static HWND hListView, hBtnEditor, hBtnAnalytics, hEditFilter;
+    static HWND hListView, hBtnEditor, hBtnAnalytics, hEditFilter, hEditSearchName, hStatus;
     switch (message)
     {
     case WM_CREATE:
     {
+        // ПОИСК ПО ИМЕНИ И ФИЛЬТР ЦЕНЫ
+        CreateWindowW(L"STATIC", L"Имя:", WS_VISIBLE | WS_CHILD, 180, 20, 40, 20, hWnd, NULL, hInst, NULL);
+        hEditSearchName = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 220, 20, 100, 20, hWnd, (HMENU)IDC_EDIT_SEARCH_NAME, hInst, NULL);
+
         CreateWindowW(L"STATIC", L"Фильтр (Цена >):", WS_VISIBLE | WS_CHILD, 330, 20, 120, 20, hWnd, NULL, hInst, NULL);
         hEditFilter = CreateWindowW(L"EDIT", L"0", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER, 450, 20, 60, 20, hWnd, (HMENU)IDC_EDIT_FILTER, hInst, NULL);
         CreateWindowW(L"BUTTON", L"Поиск", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 520, 18, 60, 24, hWnd, (HMENU)IDC_BTN_FILTER, hInst, NULL);
 
+        // КНОПКИ СЛЕВА
         hBtnEditor = CreateWindowW(L"BUTTON", L"Добавить поставщика (Редактор)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             20, 480, 250, 40, hWnd, (HMENU)IDC_BTN_OPEN_EDITOR, hInst, NULL);
 
@@ -335,6 +367,12 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         CreateWindowW(L"BUTTON", L"Пользователи", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             300, 580, 250, 40, hWnd, (HMENU)IDC_BTN_MANAGE_USERS, hInst, NULL);
 
+        // УБЕР-КНОПКИ СПРАВА ОТ ТАБЛИЦЫ
+        CreateWindowW(L"BUTTON", L"Удалить товар", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 650, 60, 200, 40, hWnd, (HMENU)IDC_BTN_DELETE_PROD, hInst, NULL);
+        CreateWindowW(L"BUTTON", L"Экспорт CSV", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 650, 110, 200, 40, hWnd, (HMENU)IDC_BTN_EXPORT, hInst, NULL);
+        CreateWindowW(L"BUTTON", L"Сменить пароль", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 650, 160, 200, 40, hWnd, (HMENU)IDC_BTN_CHANGE_PASS, hInst, NULL);
+
+        // ТАБЛИЦА
         hListView = CreateWindowExW(0, WC_LISTVIEW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER | LVS_SINGLESEL,
             20, 60, 600, 400, hWnd, NULL, hInst, NULL);
         ListView_SetExtendedListViewStyle(hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -343,6 +381,10 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         lvc.iSubItem = 0; lvc.cx = 50; lvc.pszText = (LPWSTR)L"ID"; ListView_InsertColumn(hListView, 0, &lvc);
         lvc.iSubItem = 1; lvc.cx = 300; lvc.pszText = (LPWSTR)L"Название"; ListView_InsertColumn(hListView, 1, &lvc);
         lvc.iSubItem = 2; lvc.cx = 150; lvc.pszText = (LPWSTR)L"Цена"; ListView_InsertColumn(hListView, 2, &lvc);
+
+        // СТАТУС БАР
+        hStatus = CreateWindowExW(0, STATUSCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0, hWnd, (HMENU)IDC_STATUSBAR, hInst, NULL);
+        SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Система загружена.");
 
         wchar_t connStr[256] = { 0 };
         GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
@@ -372,6 +414,9 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
         break;
     }
+    case WM_SIZE: // АВТО-РЕСАЙЗ СТАТУС БАРА ПРИ ИЗМЕНЕНИИ ОКНА
+        if (hStatus) SendMessageW(hStatus, WM_SIZE, wParam, lParam);
+        break;
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
@@ -393,10 +438,67 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
         else if (wmId == IDC_BTN_MANAGE_USERS) {
             HWND hUsr = CreateWindowW(szUsersClass, L"Пользователи", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 400, 400, 680, 400, nullptr, nullptr, hInst, nullptr);
         }
-        else if (wmId == IDC_BTN_FILTER) {
-            wchar_t filterVal[50];
+        else if (wmId == IDC_BTN_CHANGE_PASS) {
+            HWND hCp = CreateWindowW(szChangePassClass, L"Смена пароля", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 300, 300, 300, 300, nullptr, nullptr, hInst, nullptr);
+        }
+        else if (wmId == IDC_BTN_EXPORT) { // ЭКСПОРТ В CSV
+            std::ofstream file("export.csv");
+            if (file.is_open()) {
+                int count = ListView_GetItemCount(hListView);
+                file << "ID;ProductName;BasePrice\n";
+                for (int i = 0; i < count; i++) {
+                    wchar_t b1[100], b2[100], b3[100];
+                    ListView_GetItemText(hListView, i, 0, b1, 100);
+                    ListView_GetItemText(hListView, i, 1, b2, 100);
+                    ListView_GetItemText(hListView, i, 2, b3, 100);
+                    wchar_t line[350];
+                    swprintf_s(line, 350, L"%ls;%ls;%ls\n", b1, b2, b3);
+                    int sz = WideCharToMultiByte(CP_UTF8, 0, line, -1, NULL, 0, NULL, NULL);
+                    if (sz > 1) {
+                        std::string utf8line(sz - 1, 0);
+                        WideCharToMultiByte(CP_UTF8, 0, line, -1, &utf8line[0], sz - 1, NULL, NULL);
+                        file << utf8line;
+                    }
+                }
+                file.close();
+                SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Экспорт в export.csv успешно завершен!");
+                MessageBoxW(hWnd, L"Таблица выгружена в файл export.csv (рядом с программой)!", L"Экспорт успешен", MB_OK);
+            }
+            else {
+                MessageBoxW(hWnd, L"Не удалось создать файл!", L"Ошибка", MB_ICONERROR);
+            }
+        }
+        else if (wmId == IDC_BTN_DELETE_PROD) { // УДАЛЕНИЕ (CRUD)
+            int selIdx = ListView_GetNextItem(hListView, -1, LVNI_SELECTED);
+            if (selIdx == -1) {
+                MessageBoxW(hWnd, L"Сначала выберите товар в таблице!", L"Внимание", MB_ICONWARNING);
+            }
+            else {
+                wchar_t idStr[20];
+                ListView_GetItemText(hListView, selIdx, 0, idStr, 20);
+
+                wchar_t connStr[256] = { 0 };
+                GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+                SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+                SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+                if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                    SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                    wchar_t query[256]; swprintf_s(query, 256, L"DELETE FROM Products WHERE ProductID = %ls", idStr);
+                    if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
+                        SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)L"Статус: Товар удален из базы данных.");
+                        SendMessageW(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_FILTER, 0), 0); // Обновляем таблицу
+                    }
+                    else MessageBoxW(hWnd, L"Ошибка при удалении", L"Ошибка", MB_ICONERROR);
+                    SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+                }
+                SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+            }
+        }
+        else if (wmId == IDC_BTN_FILTER) { // ФИЛЬТР ЦЕНЫ + ПОИСК ПО ИМЕНИ
+            wchar_t filterVal[50], searchVal[100];
             GetWindowTextW(hEditFilter, filterVal, 50);
             if (wcslen(filterVal) == 0) wcscpy_s(filterVal, L"0");
+            GetWindowTextW(hEditSearchName, searchVal, 100);
 
             ListView_DeleteAllItems(hListView);
 
@@ -407,7 +509,8 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
             if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
                 SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
                 wchar_t query[512];
-                swprintf_s(query, 512, L"SELECT ProductID, ProductName, BasePrice FROM Products WHERE BasePrice > %ls", filterVal);
+                // ИСПОЛЬЗУЕМ ОПЕРАТОР LIKE ДЛЯ ПОИСКА ТЕКСТА
+                swprintf_s(query, 512, L"SELECT ProductID, ProductName, BasePrice FROM Products WHERE BasePrice >= %ls AND ProductName LIKE N'%%%ls%%'", filterVal, searchVal);
                 if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, query, SQL_NTS))) {
                     SQLINTEGER prodId; SQLWCHAR prodName[100]; SQLWCHAR priceStr[50]; SQLLEN cbId, cbName, cbPrice;
                     int rowCount = 0;
@@ -424,6 +527,8 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
                         ListView_SetItemText(hListView, rowCount, 2, priceStr);
                         rowCount++;
                     }
+                    wchar_t stat[100]; swprintf_s(stat, 100, L"Статус: Поиск завершен. Найдено записей: %d", rowCount);
+                    SendMessageW(hStatus, SB_SETTEXT, 0, (LPARAM)stat);
                 }
                 SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
             }
@@ -434,11 +539,60 @@ LRESULT CALLBACK DashboardWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
     case WM_PAINT:
     {
         PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps);
-        TextOutW(hdc, 20, 20, L"Справочник готовой продукции (Данные из SQL):", 45);
+        TextOutW(hdc, 20, 20, L"Справочник:", 11);
         EndPaint(hWnd, &ps);
         break;
     }
     case WM_DESTROY: PostQuitMessage(0); break;
+    default: return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+// ---------------- ФОРМА 9: СМЕНА ПАРОЛЯ ----------------
+LRESULT CALLBACK ChangePassWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static HWND hLog, hOld, hNew;
+    switch (message) {
+    case WM_CREATE:
+        CreateWindowW(L"STATIC", L"Логин:", WS_VISIBLE | WS_CHILD, 20, 20, 100, 20, hWnd, NULL, hInst, NULL);
+        hLog = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER, 20, 40, 200, 25, hWnd, (HMENU)IDC_EDIT_CP_LOGIN, hInst, NULL);
+        CreateWindowW(L"STATIC", L"Старый пароль:", WS_VISIBLE | WS_CHILD, 20, 70, 150, 20, hWnd, NULL, hInst, NULL);
+        hOld = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_PASSWORD, 20, 90, 200, 25, hWnd, (HMENU)IDC_EDIT_CP_OLD, hInst, NULL);
+        CreateWindowW(L"STATIC", L"Новый пароль:", WS_VISIBLE | WS_CHILD, 20, 120, 150, 20, hWnd, NULL, hInst, NULL);
+        hNew = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_PASSWORD, 20, 140, 200, 25, hWnd, (HMENU)IDC_EDIT_CP_NEW, hInst, NULL);
+        CreateWindowW(L"BUTTON", L"Сменить пароль", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 20, 180, 200, 30, hWnd, (HMENU)IDC_BTN_CP_SAVE, hInst, NULL);
+        break;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_BTN_CP_SAVE) {
+            wchar_t log[100], oldp[100], newp[100];
+            GetWindowTextW(hLog, log, 100); GetWindowTextW(hOld, oldp, 100); GetWindowTextW(hNew, newp, 100);
+            if (wcslen(log) == 0 || wcslen(oldp) == 0 || wcslen(newp) == 0) {
+                MessageBoxW(hWnd, L"Заполните всё!", L"Ошибка", MB_ICONWARNING); return 0;
+            }
+            std::wstring oldHash = GenerateSHA256(oldp);
+            std::wstring newHash = GenerateSHA256(newp);
+
+            wchar_t connStr[256]; GetPrivateProfileStringW(L"Database", L"ConnectionString", L"", connStr, 256, L".\\config.ini");
+            SQLHENV hEnv = NULL; SQLHDBC hDbc = NULL; SQLHSTMT hStmt = NULL;
+            SQLAllocHandle(SQL_HANDLE_ENV, NULL, &hEnv); SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0); SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+            if (SQL_SUCCEEDED(SQLDriverConnectW(hDbc, hWnd, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT))) {
+                SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+                wchar_t q[512]; swprintf_s(q, 512, L"SELECT UserID FROM Users WHERE Username='%ls' AND PasswordHash='%ls'", log, oldHash.c_str());
+                if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, q, SQL_NTS)) && SQLFetch(hStmt) == SQL_SUCCESS) {
+                    SQLCloseCursor(hStmt);
+                    swprintf_s(q, 512, L"UPDATE Users SET PasswordHash='%ls' WHERE Username='%ls'", newHash.c_str(), log);
+                    if (SQL_SUCCEEDED(SQLExecDirectW(hStmt, q, SQL_NTS))) {
+                        MessageBoxW(hWnd, L"Пароль успешно изменен!", L"Успех", MB_OK);
+                        DestroyWindow(hWnd);
+                    }
+                }
+                else MessageBoxW(hWnd, L"Неверный логин или старый пароль!", L"Ошибка", MB_ICONERROR);
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt); SQLDisconnect(hDbc);
+            }
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc); SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        }
+        break;
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
@@ -914,6 +1068,7 @@ LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
     }
     return 0;
 }
+
 
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
