@@ -1182,6 +1182,7 @@ LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
                 return 0;
             }
 
+
             wchar_t uLogin[100], uPass[100], uRole[10];
             GetWindowTextW(hEditUsrLogin, uLogin, 100);
             GetWindowTextW(hEditUsrPass, uPass, 100);
