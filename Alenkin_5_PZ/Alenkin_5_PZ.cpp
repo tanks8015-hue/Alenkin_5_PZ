@@ -1216,7 +1216,6 @@ LRESULT CALLBACK UsersWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         }
         break;
     }
-
     default: return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
