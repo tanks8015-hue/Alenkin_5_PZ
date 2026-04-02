@@ -1,0 +1,50 @@
+# === IDE & Редакторы ===
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+
+# === C# / .NET (для вашего Study Organizer) ===
+[Bb]in/
+[Oo]bj/
+.vs/
+*.userprefs
+*.dbmdl
+*.jsproj.user
+
+# === C++ / Visual Studio (для виртуальной файловой системы) ===
+x64/
+x86/
+Debug/
+Release/
+*.pdb
+*.exe
+*.obj
+*.ilk
+*.log
+*.tlog
+*.lastbuildstate
+*.recipe
+
+# === Flutter / Dart (для мессенджера Prizma) ===
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+ios/.generated/
+android/app/src/main/res/drawable-*/app_icon.png
+pubspec.lock
+
+# === Системные файлы ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Локальные конфиги ===
+.env
+*.local
